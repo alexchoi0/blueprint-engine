@@ -1,29 +1,5 @@
 """Utility functions for Blueprint."""
 
-def map(fn, items):
-    """Apply a function to each item and return the results as a list.
-
-    Args:
-        fn: Function to apply to each item
-        items: Iterable of items
-
-    Returns:
-        List of results
-    """
-    return [fn(item) for item in items]
-
-def filter(fn, items):
-    """Filter items by a predicate function.
-
-    Args:
-        fn: Predicate function (returns bool)
-        items: Iterable of items
-
-    Returns:
-        List of items where fn(item) is True
-    """
-    return [item for item in items if fn(item)]
-
 def reduce(fn, items, initial=None):
     """Reduce items to a single value using a function.
 
@@ -46,25 +22,6 @@ def reduce(fn, items, initial=None):
     for item in items_list:
         acc = fn(acc, item)
     return acc
-
-def sleep(seconds):
-    """Sleep for a specified number of seconds.
-
-    Args:
-        seconds: Number of seconds to sleep (can be fractional, e.g., 0.5 for 500ms)
-
-    Returns:
-        OpResult (for use with after() and other combinators)
-    """
-    return __bp_sleep(seconds)
-
-def now():
-    """Get the current Unix timestamp.
-
-    Returns:
-        OpResult containing the current time as a float (seconds since epoch)
-    """
-    return __bp_now()
 
 def _log_info(message):
     """Log an info message to stdout."""

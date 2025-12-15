@@ -50,46 +50,26 @@ load("@bp/exec",
     "env",
 )
 
-load("@bp/parallel",
-    "gather",
+load("@bp/sync",
     "race",
-    "at_least",
-    "at_most",
-    "after",
-    "sequence",
+    "take",
+    "pipeline",
+)
+
+load("@bp/time",
+    "sleep",
+    "now",
 )
 
 load("@bp/util",
-    "map",
-    "filter",
     "reduce",
-    "sleep",
-    "now",
     "log",
 )
 
-load("@bp/ops",
-    "bp_bool",
-    "bp_int",
-    "bp_float",
-    "bp_str",
-    "bp_len",
-    "bp_add",
-    "bp_sub",
-    "bp_mul",
-    "bp_div",
-    "bp_floor_div",
-    "bp_mod",
-    "bp_neg",
-    "bp_eq",
-    "bp_ne",
-    "bp_lt",
-    "bp_le",
-    "bp_gt",
-    "bp_ge",
-    "bp_not",
-    "bp_concat",
-    "bp_contains",
+load("@bp/net",
+    "tcp",
+    "udp",
+    "socket",
 )
 
 io = struct(
@@ -131,44 +111,24 @@ exec = struct(
     env = env,
 )
 
-parallel = struct(
-    gather = gather,
+sync = struct(
     race = race,
-    at_least = at_least,
-    at_most = at_most,
-    after = after,
-    sequence = sequence,
+    take = take,
+    pipeline = pipeline,
+)
+
+time = struct(
+    sleep = sleep,
+    now = now,
 )
 
 util = struct(
-    map = map,
-    filter = filter,
     reduce = reduce,
-    sleep = sleep,
-    now = now,
     log = log,
 )
 
-ops = struct(
-    bool = bp_bool,
-    int = bp_int,
-    float = bp_float,
-    str = bp_str,
-    len = bp_len,
-    add = bp_add,
-    sub = bp_sub,
-    mul = bp_mul,
-    div = bp_div,
-    floor_div = bp_floor_div,
-    mod = bp_mod,
-    neg = bp_neg,
-    eq = bp_eq,
-    ne = bp_ne,
-    lt = bp_lt,
-    le = bp_le,
-    gt = bp_gt,
-    ge = bp_ge,
-    not_ = bp_not,
-    concat = bp_concat,
-    contains = bp_contains,
+net = struct(
+    tcp = tcp,
+    udp = udp,
+    socket = socket,
 )
