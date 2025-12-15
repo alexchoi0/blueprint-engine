@@ -227,6 +227,7 @@ impl BlueprintInterpreter {
             OpKind::Contains { haystack, needle } => vec![haystack.clone(), needle.clone()],
             OpKind::If { condition, then_value, else_value } => vec![condition.clone(), then_value.clone(), else_value.clone()],
             OpKind::Index { base, index } => vec![base.clone(), index.clone()],
+            OpKind::SetIndex { base, index, value } => vec![base.clone(), index.clone(), value.clone()],
             OpKind::Min { values } => vec![values.clone()],
             OpKind::Max { values } => vec![values.clone()],
             OpKind::Sum { values, start } => vec![values.clone(), start.clone()],
@@ -1093,6 +1094,37 @@ async fn execute_op(
                     })
                 }
                 _ => Err(ExecutionError::InvalidOp("Invalid index operation".to_string()))
+            }
+        }
+
+        OpKind::SetIndex { base, index, value } => {
+            let mut b = resolver.resolve(base)
+                .ok_or_else(|| ExecutionError::ResolutionFailed(op_id))?;
+            let idx = resolver.resolve(index)
+                .ok_or_else(|| ExecutionError::ResolutionFailed(op_id))?;
+            let val = resolver.resolve(value)
+                .ok_or_else(|| ExecutionError::ResolutionFailed(op_id))?;
+
+            match (&mut b, idx) {
+                (RecordedValue::List(ref mut list), RecordedValue::Int(i)) => {
+                    let index = if i < 0 {
+                        (list.len() as i64 + i) as usize
+                    } else {
+                        i as usize
+                    };
+                    if index >= list.len() {
+                        return Err(ExecutionError::InvalidOp(format!(
+                            "Index {} out of bounds for list of length {}", i, list.len()
+                        )));
+                    }
+                    list[index] = val;
+                    Ok(b)
+                }
+                (RecordedValue::Dict(ref mut dict), RecordedValue::String(key)) => {
+                    dict.insert(key, val);
+                    Ok(b)
+                }
+                _ => Err(ExecutionError::InvalidOp("Invalid set index operation".to_string()))
             }
         }
 
@@ -2090,6 +2122,30 @@ fn execute_subplan_op_async<'a>(
                     })
                 }
                 _ => Err(ExecutionError::InvalidOp("Invalid index operation".to_string()))
+            }
+        }
+
+        OpKind::SetIndex { base, index, value } => {
+            let mut b = resolve(base).ok_or_else(|| ExecutionError::ResolutionFailed(op_id))?;
+            let idx = resolve(index).ok_or_else(|| ExecutionError::ResolutionFailed(op_id))?;
+            let val = resolve(value).ok_or_else(|| ExecutionError::ResolutionFailed(op_id))?;
+
+            match (&mut b, idx) {
+                (RecordedValue::List(ref mut list), RecordedValue::Int(i)) => {
+                    let index = if i < 0 { (list.len() as i64 + i) as usize } else { i as usize };
+                    if index >= list.len() {
+                        return Err(ExecutionError::InvalidOp(format!(
+                            "Index {} out of bounds for list of length {}", i, list.len()
+                        )));
+                    }
+                    list[index] = val;
+                    Ok(b)
+                }
+                (RecordedValue::Dict(ref mut dict), RecordedValue::String(key)) => {
+                    dict.insert(key, val);
+                    Ok(b)
+                }
+                _ => Err(ExecutionError::InvalidOp("Invalid set index operation".to_string()))
             }
         }
 

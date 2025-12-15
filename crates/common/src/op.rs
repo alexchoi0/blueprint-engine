@@ -200,6 +200,7 @@ pub enum OpKind {
 
     // Dynamic indexing
     Index { base: ValueRef, index: ValueRef },
+    SetIndex { base: ValueRef, index: ValueRef, value: ValueRef },
 
     // === Generator Operations ===
 
@@ -315,6 +316,7 @@ impl OpKind {
             OpKind::Break => "Break",
             OpKind::Continue => "Continue",
             OpKind::Index { .. } => "Index",
+            OpKind::SetIndex { .. } => "SetIndex",
             OpKind::GeneratorDef { .. } => "GeneratorDef",
             OpKind::GeneratorYield { .. } => "GeneratorYield",
             OpKind::GeneratorYieldIf { .. } => "GeneratorYieldIf",
@@ -403,6 +405,7 @@ impl OpKind {
             | OpKind::Break
             | OpKind::Continue
             | OpKind::Index { .. }
+            | OpKind::SetIndex { .. }
             | OpKind::GeneratorDef { .. }
             | OpKind::GeneratorYield { .. }
             | OpKind::GeneratorYieldIf { .. }
@@ -495,6 +498,7 @@ impl OpKind {
             OpKind::IfBlock { condition, .. } => vec![condition],
             OpKind::Break | OpKind::Continue => vec![],
             OpKind::Index { base, index } => vec![base, index],
+            OpKind::SetIndex { base, index, value } => vec![base, index, value],
             OpKind::GeneratorDef { .. } => vec![],
             OpKind::GeneratorYield { value } => vec![value],
             OpKind::GeneratorYieldIf { condition, value } => vec![condition, value],
@@ -587,6 +591,7 @@ impl OpKind {
             OpKind::IfBlock { condition, .. } => vec![condition],
             OpKind::Break | OpKind::Continue => vec![],
             OpKind::Index { base, index } => vec![base, index],
+            OpKind::SetIndex { base, index, value } => vec![base, index, value],
             OpKind::GeneratorDef { .. } => vec![],
             OpKind::GeneratorYield { value } => vec![value],
             OpKind::GeneratorYieldIf { condition, value } => vec![condition, value],
@@ -779,6 +784,7 @@ impl OpKind {
             OpKind::Break => vec![],
             OpKind::Continue => vec![],
             OpKind::Index { base, index } => vec![("base", base.to_text()), ("index", index.to_text())],
+            OpKind::SetIndex { base, index, value } => vec![("base", base.to_text()), ("index", index.to_text()), ("value", value.to_text())],
             OpKind::GeneratorDef { name, params, .. } => vec![
                 ("name", name.clone()),
                 ("params", format!("{:?}", params)),
@@ -905,6 +911,7 @@ impl std::fmt::Display for OpKind {
             OpKind::Break => write!(f, "Break"),
             OpKind::Continue => write!(f, "Continue"),
             OpKind::Index { base, index } => write!(f, "Index({}, {})", base, index),
+            OpKind::SetIndex { base, index, value } => write!(f, "SetIndex({}, {}, {})", base, index, value),
             OpKind::GeneratorDef { name, params, .. } => write!(f, "GeneratorDef({}, {:?}, <subplan>)", name, params),
             OpKind::GeneratorYield { value } => write!(f, "GeneratorYield({})", value),
             OpKind::GeneratorYieldIf { condition, value } => write!(f, "GeneratorYieldIf({}, {})", condition, value),

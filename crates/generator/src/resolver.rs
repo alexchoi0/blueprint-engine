@@ -462,6 +462,12 @@ impl<'a> PlanGenerator<'a> {
                 index: self.resolve_value(index, id_map)?,
             }]),
 
+            SchemaOp::SetIndex { base, index, value } => Ok(vec![OpKind::SetIndex {
+                base: self.resolve_value(base, id_map)?,
+                index: self.resolve_value(index, id_map)?,
+                value: self.resolve_value(value, id_map)?,
+            }]),
+
             // === Pure operations (collection) ===
             SchemaOp::Min { values } => Ok(vec![OpKind::Min {
                 values: self.resolve_value(values, id_map)?,

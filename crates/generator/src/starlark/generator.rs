@@ -443,6 +443,7 @@ impl SchemaGenerator {
             SchemaOp::Contains { .. } |
             SchemaOp::Len { .. } |
             SchemaOp::Index { .. } |
+            SchemaOp::SetIndex { .. } |
             SchemaOp::Min { .. } |
             SchemaOp::Max { .. } |
             SchemaOp::Sum { .. } |
@@ -2734,7 +2735,13 @@ impl SchemaGenerator {
                 let (base_expr, index_expr) = &**base_index;
                 let base = self.eval_expr(base_expr)?;
                 let index = self.eval_expr(index_expr)?;
-                self.assign_index(base, index, value)
+                let new_value = self.assign_index(base, index, value)?;
+                if let Some(new_ref) = new_value {
+                    if let ExprP::Identifier(ident) = &base_expr.node {
+                        self.scope.set(ident.node.ident.clone(), new_ref);
+                    }
+                }
+                Ok(())
             }
             AssignTargetP::Dot(base_expr, attr) => {
                 let _base = self.eval_expr(base_expr)?;
@@ -2743,7 +2750,7 @@ impl SchemaGenerator {
         }
     }
 
-    fn assign_index(&mut self, base: Value, index: Value, value: Value) -> Result<(), String> {
+    fn assign_index(&mut self, base: Value, index: Value, value: Value) -> Result<Option<Value>, String> {
         match base {
             Value::List(l) => {
                 let ptr = Rc::as_ptr(&l);
@@ -2762,7 +2769,7 @@ impl SchemaGenerator {
                     return Err("list assignment index out of range".to_string());
                 }
                 list[i] = value;
-                Ok(())
+                Ok(None)
             }
             Value::Dict(d) => {
                 let ptr = Rc::as_ptr(&d);
@@ -2774,7 +2781,18 @@ impl SchemaGenerator {
                     _ => return Err("dict keys must be strings".to_string()),
                 };
                 d.borrow_mut().insert(key, value);
-                Ok(())
+                Ok(None)
+            }
+            Value::OpRef(op_id) => {
+                let base_sv = SchemaValue::OpRef { id: op_id, path: Vec::new() };
+                let index_sv = index.to_schema_value();
+                let value_sv = value.to_schema_value();
+                let new_op_id = self.schema.add_op(SchemaOp::SetIndex {
+                    base: base_sv,
+                    index: index_sv,
+                    value: value_sv,
+                }, None);
+                Ok(Some(Value::OpRef(new_op_id)))
             }
             _ => Err(format!("'{}' object does not support item assignment", base.type_name())),
         }
