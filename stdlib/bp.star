@@ -53,6 +53,7 @@ load("@bp/exec",
 load("@bp/sync",
     "race",
     "take",
+    "after",
     "pipeline",
 )
 
@@ -114,6 +115,7 @@ exec = struct(
 sync = struct(
     race = race,
     take = take,
+    after = after,
     pipeline = pipeline,
 )
 

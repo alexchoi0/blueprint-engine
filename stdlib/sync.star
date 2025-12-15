@@ -27,6 +27,25 @@ def take(n, ops):
         return __bp_gather(ops)
     return __bp_take(n, ops)
 
+def after(dependency, op):
+    """Execute an operation only after a dependency completes.
+
+    Creates an explicit dependency to force sequential execution
+    of operations that would otherwise run in parallel.
+
+    Args:
+        dependency: Operation that must complete first
+        op: Operation to execute after dependency
+
+    Returns:
+        Result of op (after dependency completes)
+
+    Example:
+        a = write_file("/tmp/data.txt", content)
+        b = after(a, read_file("/tmp/data.txt"))
+    """
+    return __bp_after(dependency, op)
+
 def pipeline(fns, items):
     """Process items through a pipeline of functions.
 
