@@ -676,8 +676,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         assert_eq!(plan.len(), 1);
         let op = plan.ops().next().unwrap();
@@ -695,8 +695,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let op = plan.ops().next().unwrap();
         if let OpKind::ReadFile { path } = &op.kind {
@@ -728,8 +728,8 @@ mod tests {
             None,
         );
 
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let op = plan.ops().next().unwrap();
         if let OpKind::WriteFile { path, .. } = &op.kind {
@@ -753,8 +753,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let op = plan.ops().next().unwrap();
         if let OpKind::HttpRequest { method, .. } = &op.kind {
@@ -781,8 +781,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         assert_eq!(plan.len(), 2);
 
@@ -805,8 +805,8 @@ mod tests {
         );
 
         let ctx = ExecutionContext::from_current_env();
-        let resolver = Resolver::new(&ctx);
-        let result = resolver.resolve(&schema);
+        let resolver = PlanGenerator::new(&ctx);
+        let result = resolver.generate(&schema);
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -825,8 +825,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let op = plan.ops().next().unwrap();
         assert!(matches!(op.kind, OpKind::Add { .. }));
@@ -840,8 +840,8 @@ mod tests {
         schema.add_op(SchemaOp::OpsAll { ops: vec![op1, op2] }, None);
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         assert_eq!(plan.len(), 3);
         let all_op = plan.ops().nth(2).unwrap();
@@ -911,8 +911,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         assert_eq!(plan.len(), 2);
         let foreach_op = plan.ops().nth(1).unwrap();
@@ -944,8 +944,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let foreach_op = plan.ops().next().unwrap();
         if let OpKind::ForEach { parallel, .. } = &foreach_op.kind {
@@ -975,8 +975,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         assert_eq!(plan.len(), 2);
         let ifblock_op = plan.ops().nth(1).unwrap();
@@ -1001,8 +1001,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let ifblock_op = plan.ops().next().unwrap();
         if let OpKind::IfBlock { else_body, .. } = &ifblock_op.kind {
@@ -1018,8 +1018,8 @@ mod tests {
         schema.add_op(SchemaOp::Break, None);
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let op = plan.ops().next().unwrap();
         assert!(matches!(op.kind, OpKind::Break));
@@ -1031,8 +1031,8 @@ mod tests {
         schema.add_op(SchemaOp::Continue, None);
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let op = plan.ops().next().unwrap();
         assert!(matches!(op.kind, OpKind::Continue));
@@ -1055,8 +1055,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let foreach_op = plan.ops().next().unwrap();
         if let OpKind::ForEach { body, .. } = &foreach_op.kind {
@@ -1117,8 +1117,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let outer_op = plan.ops().next().unwrap();
         if let OpKind::ForEach { body, parallel, .. } = &outer_op.kind {
@@ -1177,8 +1177,8 @@ mod tests {
         );
 
         let ctx = test_context();
-        let resolver = Resolver::new(&ctx);
-        let plan = resolver.resolve(&schema).unwrap();
+        let resolver = PlanGenerator::new(&ctx);
+        let plan = resolver.generate(&schema).unwrap();
 
         let foreach_op = plan.ops().next().unwrap();
         if let OpKind::ForEach { body, .. } = &foreach_op.kind {

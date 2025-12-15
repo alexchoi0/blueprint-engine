@@ -1,5 +1,7 @@
 # Blueprint
 
+[![CI](https://github.com/anthropics/blueprint/actions/workflows/ci.yml/badge.svg)](https://github.com/anthropics/blueprint/actions/workflows/ci.yml)
+
 A two-phase execution engine for Starlark scripts with controlled system access and approval workflows.
 
 ## Overview
@@ -17,7 +19,7 @@ This architecture allows you to inspect exactly what a script will do before it 
 - **Two-Phase Execution**: Plan first, execute later with full visibility
 - **Parallel Execution**: Independent operations run concurrently
 - **Approval System**: Policy-based approval for sensitive operations
-- **Rich Standard Library**: File I/O, HTTP, JSON, shell execution, networking
+- **Builtin Modules**: File I/O, HTTP, JSON, and shell execution
 
 ## Installation
 
@@ -30,9 +32,9 @@ cargo install --path .
 Create a script `hello.star`:
 
 ```python
-load("@bp", "io")
+load("@bp/io", "write_file")
 
-io.write_file("/tmp/hello.txt", "Hello, Blueprint!")
+write_file("/tmp/hello.txt", "Hello, Blueprint!")
 ```
 
 Check what the script will do:
@@ -60,44 +62,47 @@ blueprint run hello.star
 
 ## Standard Library
 
-Blueprint includes a comprehensive standard library:
+Blueprint provides builtin modules that are loaded directly - no stdlib files needed:
 
-| Module | Description |
-|--------|-------------|
-| `io` | File operations (read, write, delete, copy, etc.) |
-| `http` | HTTP requests |
-| `json` | JSON encode/decode |
-| `exec` | Shell command execution |
-| `parallel` | Concurrent operations (gather, race, sequence) |
-| `tcp` | TCP client/server |
-| `udp` | UDP operations |
-| `unix` | Unix domain sockets |
-
-### Example: Parallel HTTP Requests
+### `@bp/io` - File Operations
 
 ```python
-load("@bp", "http", "parallel")
+load("@bp/io", "read_file", "write_file", "append_file", "delete_file")
+load("@bp/io", "file_exists", "is_file", "is_dir", "file_size")
+load("@bp/io", "mkdir", "rmdir", "list_dir", "copy_file", "move_file")
 
-urls = [
-    "https://api.example.com/users",
-    "https://api.example.com/posts",
-    "https://api.example.com/comments",
-]
-
-def fetch(url):
-    return http.request("GET", url)
-
-results = parallel.gather([fetch(url) for url in urls])
+content = read_file("input.txt")
+write_file("output.txt", content)
+mkdir("/tmp/mydir", recursive=True)
 ```
 
-### Example: File Processing
+### `@bp/http` - HTTP Requests
 
 ```python
-load("@bp", "io", "json")
+load("@bp/http", "http_request")
 
-data = json.decode(io.read_file("config.json"))
-data["updated"] = True
-io.write_file("config.json", json.encode(data))
+response = http_request("GET", "https://api.example.com/users")
+response = http_request("POST", "https://api.example.com/data", body='{"key": "value"}')
+```
+
+### `@bp/json` - JSON Encoding/Decoding
+
+```python
+load("@bp/json", "json_encode", "json_decode")
+
+data = {"name": "Blueprint", "version": "0.1.0"}
+json_str = json_encode(data)
+parsed = json_decode('{"key": "value"}')
+```
+
+### `@bp/exec` - Shell Execution
+
+```python
+load("@bp/exec", "exec_shell", "exec_run", "env_get")
+
+result = exec_shell("echo 'Hello' && date")
+result = exec_run("ls", ["-la", "/tmp"])
+home = env_get("HOME")
 ```
 
 ## Architecture

@@ -1,5 +1,5 @@
 load("@bp/io", "write_file")
-load("@bp/json", "encode")
+load("@bp/json", "json_encode")
 
 data = {
     "name": "Blueprint",
@@ -7,5 +7,5 @@ data = {
     "features": ["starlark", "schema", "plan", "execute"],
 }
 
-encoded = encode(data)
+encoded = json_encode(data)
 write_file("/tmp/config.json", encoded)

@@ -1,5 +1,5 @@
 load("@bp/io", "write_file")
-load("@bp/json", "encode")
+load("@bp/json", "json_encode")
 
 users = [
     {"name": "Alice", "age": 30, "role": "admin"},
@@ -24,4 +24,4 @@ output = {
     "greetings": greetings,
 }
 
-write_file("/tmp/transform_output.json", encode(output))
+write_file("/tmp/transform_output.json", json_encode(output))

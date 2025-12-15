@@ -2968,13 +2968,13 @@ mod tests {
 
     #[test]
     fn test_simple_expression() {
-        let schema = SchemaGenerator::compile("x = 1 + 2", "test.star").unwrap();
+        let schema = SchemaGenerator::generate("x = 1 + 2", "test.star").unwrap();
         assert!(schema.is_empty());
     }
 
     #[test]
     fn test_function_definition() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
 def add(a, b):
     return a + b
@@ -2989,7 +2989,7 @@ result = add(1, 2)
 
     #[test]
     fn test_list_operations() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
 x = [1, 2, 3]
 x.append(4)
@@ -3003,7 +3003,7 @@ y = [i * 2 for i in x]
 
     #[test]
     fn test_builtin_io() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
 load("@bp/io", "read_file", "write_file")
 
@@ -3019,11 +3019,11 @@ write_file("output.txt", content)
 
     #[test]
     fn test_http_builtin() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
-load("@bp/http", "http_get")
+load("@bp/http", "http_request")
 
-response = http_get("https://example.com")
+response = http_request("GET", "https://example.com")
 "#,
             "test.star",
         )
@@ -3034,7 +3034,7 @@ response = http_get("https://example.com")
 
     #[test]
     fn test_conditional() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
 def check():
     x = 5
@@ -3053,7 +3053,7 @@ result = check()
 
     #[test]
     fn test_for_loop() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
 def sum_range():
     total = 0
@@ -3070,7 +3070,7 @@ result = sum_range()
 
     #[test]
     fn test_string_methods() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
 s = "hello world"
 upper = s.upper()
@@ -3084,7 +3084,7 @@ parts = s.split(" ")
 
     #[test]
     fn test_dict_operations() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
 d = {"a": 1, "b": 2}
 d["c"] = 3
@@ -3098,7 +3098,7 @@ keys = d.keys()
 
     #[test]
     fn test_lambda() {
-        let schema = SchemaGenerator::compile(
+        let schema = SchemaGenerator::generate(
             r#"
 double = lambda x: x * 2
 result = double(5)
@@ -3139,7 +3139,7 @@ result = add(2, 3) + multiply(2, 3)
         let mut compiler = SchemaGenerator::new();
         compiler.current_file = Some(main_path.clone());
         let source = std::fs::read_to_string(&main_path).unwrap();
-        compiler.compile_source(&source, main_path.to_str().unwrap()).unwrap();
+        compiler.generate_from_source(&source, main_path.to_str().unwrap()).unwrap();
 
         let result = compiler.scope.get("result").unwrap();
         assert_eq!(result, Value::Int(11));
@@ -3176,7 +3176,7 @@ def b_func():
         let mut compiler = SchemaGenerator::new();
         compiler.current_file = Some(main_path.clone());
         let source = std::fs::read_to_string(&main_path).unwrap();
-        let result = compiler.compile_source(&source, main_path.to_str().unwrap());
+        let result = compiler.generate_from_source(&source, main_path.to_str().unwrap());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Circular import"));
@@ -3213,7 +3213,7 @@ load("utils.star", "_private_helper")
         let mut compiler = SchemaGenerator::new();
         compiler.current_file = Some(main_path.clone());
         let source = std::fs::read_to_string(&main_path).unwrap();
-        let result = compiler.compile_source(&source, main_path.to_str().unwrap());
+        let result = compiler.generate_from_source(&source, main_path.to_str().unwrap());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Cannot import private"));
@@ -3238,7 +3238,7 @@ load("nonexistent.star", "func")
         let mut compiler = SchemaGenerator::new();
         compiler.current_file = Some(main_path.clone());
         let source = std::fs::read_to_string(&main_path).unwrap();
-        let result = compiler.compile_source(&source, main_path.to_str().unwrap());
+        let result = compiler.generate_from_source(&source, main_path.to_str().unwrap());
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Module not found"));
@@ -3277,7 +3277,7 @@ result = exported() + PUBLIC
         let mut compiler = SchemaGenerator::new();
         compiler.current_file = Some(main_path.clone());
         let source = std::fs::read_to_string(&main_path).unwrap();
-        compiler.compile_source(&source, main_path.to_str().unwrap()).unwrap();
+        compiler.generate_from_source(&source, main_path.to_str().unwrap()).unwrap();
 
         let result = compiler.scope.get("result").unwrap();
         assert_eq!(result, Value::Int(242));
@@ -3287,28 +3287,28 @@ result = exported() + PUBLIC
 
     #[test]
     fn test_reject_top_level_if() {
-        let result = SchemaGenerator::compile("if True:\n    x = 1", "test.star");
+        let result = SchemaGenerator::generate("if True:\n    x = 1", "test.star");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not allowed at top level"));
     }
 
     #[test]
     fn test_reject_top_level_if_else() {
-        let result = SchemaGenerator::compile("if True:\n    x = 1\nelse:\n    x = 2", "test.star");
+        let result = SchemaGenerator::generate("if True:\n    x = 1\nelse:\n    x = 2", "test.star");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not allowed at top level"));
     }
 
     #[test]
     fn test_reject_top_level_for() {
-        let result = SchemaGenerator::compile("for i in [1,2]:\n    x = i", "test.star");
+        let result = SchemaGenerator::generate("for i in [1,2]:\n    x = i", "test.star");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not allowed at top level"));
     }
 
     #[test]
     fn test_allow_if_inside_function() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 def foo():
     if True:
@@ -3323,7 +3323,7 @@ result = foo()
 
     #[test]
     fn test_allow_for_inside_function() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 def sum_list():
     total = 0
@@ -3339,7 +3339,7 @@ result = sum_list()
 
     #[test]
     fn test_runtime_for_loop_with_op_result() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "read_file")
 
@@ -3365,7 +3365,7 @@ process_lines()
 
     #[test]
     fn test_runtime_for_loop_simple_body() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "read_file", "write_file")
 
@@ -3397,7 +3397,7 @@ copy_files()
 
     #[test]
     fn test_foreach_parallel_with_read_file() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "read_file", "list_dir")
 
@@ -3417,7 +3417,7 @@ main()
 
     #[test]
     fn test_foreach_sequential_with_print() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "list_dir")
 
@@ -3437,15 +3437,15 @@ main()
 
     #[test]
     fn test_foreach_parallel_with_http() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "list_dir")
-load("@bp/http", "http_get")
+load("@bp/http", "http_request")
 
 def main():
     urls = list_dir("/tmp/urls")
     for url in urls:
-        http_get(url)
+        http_request("GET", url)
 main()
 "#,
             "test.star",
@@ -3458,7 +3458,7 @@ main()
 
     #[test]
     fn test_foreach_parallel_file_write_with_loop_var() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "list_dir", "write_file")
 
@@ -3478,7 +3478,7 @@ main()
 
     #[test]
     fn test_foreach_sequential_file_write_static_path() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "list_dir", "write_file")
 
@@ -3498,7 +3498,7 @@ main()
 
     #[test]
     fn test_foreach_sequential_append_same_file() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "list_dir", "append_file")
 
@@ -3536,7 +3536,7 @@ main()
 
     #[test]
     fn test_map_with_dynamic_iterable() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "list_dir", "read_file")
 
@@ -3555,7 +3555,7 @@ main()
 
     #[test]
     fn test_filter_with_dynamic_iterable() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "list_dir", "file_exists")
 
@@ -3574,7 +3574,7 @@ main()
 
     #[test]
     fn test_map_with_static_iterable_no_deferred_op() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 def double(x):
     return x * 2
@@ -3594,7 +3594,7 @@ main()
 
     #[test]
     fn test_filter_with_static_iterable_no_deferred_op() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 def is_even(x):
     return x % 2 == 0
@@ -3614,7 +3614,7 @@ main()
 
     #[test]
     fn test_map_with_lambda_calling_builtin() {
-        let result = SchemaGenerator::compile(
+        let result = SchemaGenerator::generate(
             r#"
 load("@bp/io", "list_dir", "file_exists")
 

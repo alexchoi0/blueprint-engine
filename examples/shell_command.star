@@ -1,3 +1,3 @@
-load("@bp/exec", "shell")
+load("@bp/exec", "exec_shell")
 
-result = shell("echo 'Hello from shell' && date")
+result = exec_shell("echo 'Hello from shell' && date")

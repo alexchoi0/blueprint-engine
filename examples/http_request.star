@@ -1,3 +1,3 @@
-load("@bp/http", "get")
+load("@bp/http", "http_request")
 
-response = get("https://httpbin.org/json")
+response = http_request("GET", "https://httpbin.org/json")

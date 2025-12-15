@@ -1,10 +1,9 @@
-load("@bp/io", "mkdir", "write_file", "list_dir")
+load("@bp/io", "mkdir", "write_file")
 
 mkdir("/tmp/blueprint_test", recursive=True)
 
-files = ["one.txt", "two.txt", "three.txt"]
-for i, name in enumerate(files):
-    path = "/tmp/blueprint_test/" + name
-    write_file(path, "File %d: %s" % (i + 1, name))
+write_file("/tmp/blueprint_test/one.txt", "File 1: one.txt")
+write_file("/tmp/blueprint_test/two.txt", "File 2: two.txt")
+write_file("/tmp/blueprint_test/three.txt", "File 3: three.txt")
 
-listing = list_dir("/tmp/blueprint_test")
+print("Created 3 files in /tmp/blueprint_test")
