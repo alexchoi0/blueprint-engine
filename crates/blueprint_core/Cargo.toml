@@ -1,0 +1,11 @@
+[package]
+name = "blueprint_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core types and errors for Blueprint3"
+
+[dependencies]
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+serde = { workspace = true }

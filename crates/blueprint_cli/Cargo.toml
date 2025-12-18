@@ -1,0 +1,18 @@
+[package]
+name = "blueprint3"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "High-performance Starlark script executor with implicit async I/O"
+
+[[bin]]
+name = "bp"
+path = "src/main.rs"
+
+[dependencies]
+blueprint_core.workspace = true
+blueprint_parser.workspace = true
+blueprint_eval.workspace = true
+tokio.workspace = true
+clap.workspace = true
+glob.workspace = true
