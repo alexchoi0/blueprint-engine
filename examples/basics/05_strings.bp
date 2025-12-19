@@ -1,0 +1,40 @@
+print("=== Blueprint: String Operations ===")
+print()
+
+text = "Hello, Blueprint!"
+
+print("Basic operations:")
+print("  Original:", text)
+print("  Length:", len(text))
+print("  Upper:", text.upper())
+print("  Lower:", text.lower())
+print("  Replace:", text.replace("Blueprint", "World"))
+print()
+
+print("Slicing:")
+print("  First 5 chars:", text[:5])
+print("  Last 10 chars:", text[-10:])
+print("  Every 2nd char:", text[::2])
+print()
+
+print("Split and Join:")
+words = "one,two,three,four".split(",")
+print("  Split by ',':", words)
+print("  Join with '-':", "-".join(words))
+print()
+
+print("F-strings:")
+name = "Blueprint"
+version = 1
+print(f"  Welcome to {name} version {version}!")
+result = 2 + 2
+print(f"  Math: 2 + 2 = {result}")
+upper_name = name.upper()
+print(f"  Uppercase: {upper_name}")
+print()
+
+print("String methods:")
+print("  'hello'.startswith('he'):", "hello".startswith("he"))
+print("  'hello'.endswith('lo'):", "hello".endswith("lo"))
+print("  '  space  '.strip():", "'" + "  space  ".strip() + "'")
+print("  'abc'.find('b'):", "abc".find("b"))

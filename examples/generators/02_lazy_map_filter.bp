@@ -1,0 +1,55 @@
+print("=== Blueprint: Lazy Map and Filter ===")
+print()
+print("map() and filter() return generators for lazy evaluation.")
+print("Values are computed on-demand, not all at once.")
+print()
+
+print("1. map() returns a generator:")
+result = map(lambda x: x * 2, [1, 2, 3, 4, 5])
+print("   type(map(...)):", type(result))
+print()
+
+print("2. Iterate lazily:")
+for x in map(lambda x: x * 2, [1, 2, 3]):
+    print("  ", x)
+print()
+
+print("3. Materialize with list():")
+doubled = list(map(lambda x: x * 2, [1, 2, 3, 4, 5]))
+print("   list(map(...)):", doubled)
+print()
+
+print("4. filter() for selecting elements:")
+evens = list(filter(lambda x: x % 2 == 0, range(10)))
+print("   Even numbers:", evens)
+print()
+
+print("5. filter(None, ...) for truthy values:")
+mixed = [0, 1, "", "hello", None, True, False, [], [1, 2]]
+truthy = list(filter(None, mixed))
+print("   Input:", mixed)
+print("   Truthy:", truthy)
+print()
+
+print("6. Chain map and filter (still lazy!):")
+result = filter(lambda x: x > 10, map(lambda x: x * 3, range(10)))
+print("   type:", type(result))
+print("   result:", list(result))
+print()
+
+print("7. Proving lazy evaluation:")
+call_count = [0]
+def track(x):
+    call_count[0] = call_count[0] + 1
+    return x * 2
+
+gen = map(track, [1, 2, 3, 4, 5])
+print("   After map(), calls made:", call_count[0])
+
+print("   Taking first 2 items:")
+for i, x in enumerate(gen):
+    print("     got:", x)
+    if i >= 1:
+        break
+
+print("   Total calls made:", call_count[0], "(only 2, not 5!)")

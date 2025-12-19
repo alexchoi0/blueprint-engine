@@ -476,10 +476,14 @@ pub async fn install_package(package: &str) -> Result<()> {
     let repo = parts[1];
     let version_str = version.unwrap_or("main");
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let package_dir = PathBuf::from(&home)
-        .join(".blueprint")
-        .join("packages")
+    let base_dir = if let Some(workspace) = find_workspace_root() {
+        workspace.join(".blueprint").join("packages")
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(&home).join(".blueprint").join("packages")
+    };
+
+    let package_dir = base_dir
         .join(user)
         .join(format!("{}#{}", repo, version_str));
 
@@ -493,6 +497,20 @@ pub async fn install_package(package: &str) -> Result<()> {
     println!("Installed @{}/{}#{}", user, repo, version_str);
 
     Ok(())
+}
+
+fn find_workspace_root() -> Option<PathBuf> {
+    let mut current = std::env::current_dir().ok()?;
+    loop {
+        let bp_toml = current.join("BP.toml");
+        if bp_toml.exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
 }
 
 pub async fn uninstall_package(package: &str) -> Result<()> {
@@ -514,11 +532,14 @@ pub async fn uninstall_package(package: &str) -> Result<()> {
     let user = parts[0];
     let repo = parts[1];
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let packages_dir = PathBuf::from(&home)
-        .join(".blueprint")
-        .join("packages")
-        .join(user);
+    let base_dir = if let Some(workspace) = find_workspace_root() {
+        workspace.join(".blueprint").join("packages")
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(&home).join(".blueprint").join("packages")
+    };
+
+    let packages_dir = base_dir.join(user);
 
     if let Some(ver) = version {
         let package_dir = packages_dir.join(format!("{}#{}", repo, ver));
@@ -564,8 +585,13 @@ pub async fn uninstall_package(package: &str) -> Result<()> {
 }
 
 pub async fn list_packages() -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let packages_dir = PathBuf::from(&home).join(".blueprint").join("packages");
+    let packages_dir = if let Some(workspace) = find_workspace_root() {
+        println!("Packages in workspace: {}", workspace.display());
+        workspace.join(".blueprint").join("packages")
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(&home).join(".blueprint").join("packages")
+    };
 
     if !packages_dir.exists() {
         println!("No packages installed");
@@ -672,4 +698,36 @@ fn expand_globs(patterns: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
 
 fn report_error(path: &Path, error: &BlueprintError) {
     eprintln!("error: {} in {}", error, path.display());
+}
+
+pub async fn init_workspace() -> Result<()> {
+    let current_dir = std::env::current_dir().map_err(|e| BlueprintError::IoError {
+        path: ".".into(),
+        message: e.to_string(),
+    })?;
+    crate::workspace::init_workspace(&current_dir)
+}
+
+pub async fn sync_workspace() -> Result<()> {
+    let current_dir = std::env::current_dir().map_err(|e| BlueprintError::IoError {
+        path: ".".into(),
+        message: e.to_string(),
+    })?;
+
+    let workspace = crate::workspace::Workspace::find(&current_dir).ok_or_else(|| {
+        BlueprintError::IoError {
+            path: current_dir.to_string_lossy().to_string(),
+            message: "No BP.toml found in current directory or any parent".into(),
+        }
+    })?;
+
+    if workspace.config.dependencies.is_empty() {
+        println!("No dependencies to install");
+        return Ok(());
+    }
+
+    println!("Installing dependencies from BP.toml...");
+    workspace.install_all()?;
+    println!("Done!");
+    Ok(())
 }

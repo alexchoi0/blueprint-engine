@@ -1,0 +1,9 @@
+print("=== Blueprint: Hello World ===")
+print()
+print("Hello, World!")
+print("Welcome to Blueprint - a high-performance Starlark executor")
+print()
+
+name = "Blueprint"
+version = "1.0"
+print("Running:", name, "v" + version)

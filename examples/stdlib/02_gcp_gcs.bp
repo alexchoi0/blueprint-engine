@@ -1,0 +1,33 @@
+print("=== Blueprint: GCP Cloud Storage Standard Library ===")
+print()
+print("The @bp/gcp stdlib provides Google Cloud Storage operations.")
+print("Note: Actual GCS operations require a service account.")
+print()
+
+load("@bp/gcp", "gcp_auth", "gcs_upload", "gcs_download", "gcs_list", "gcs_delete", "gcs_exists", "gcs_copy", "gcs_get_metadata")
+
+print("Available functions:")
+print("  gcp_auth       - Create GCP credentials from service account")
+print("  gcs_upload     - Upload content to GCS")
+print("  gcs_download   - Download content from GCS")
+print("  gcs_list       - List objects in bucket")
+print("  gcs_delete     - Delete an object")
+print("  gcs_exists     - Check if object exists")
+print("  gcs_copy       - Copy object within GCS")
+print("  gcs_get_metadata - Get object metadata")
+print()
+
+print("Example usage (requires service account):")
+print('''
+  creds = gcp_auth(
+      service_account_json = read_file("service-account.json")
+  )
+
+  gcs_upload(creds, "my-bucket", "data/file.txt", "Hello, GCS!")
+  content = gcs_download(creds, "my-bucket", "data/file.txt")
+
+  for obj in gcs_list(creds, "my-bucket", prefix="data/"):
+      print(obj["name"], obj["size"])
+''')
+print()
+print("GCP stdlib loaded successfully!")

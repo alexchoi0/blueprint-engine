@@ -1,0 +1,49 @@
+print("=== Blueprint: WebSocket Chat Server ===")
+print()
+print("A chat-style server using ws.messages iterator.")
+print()
+
+def handle_client(ws):
+    print("Server: New client connected")
+    ws.send(json_encode({"type": "welcome", "message": "Connected to chat!"}))
+
+    for msg in ws.messages:
+        print("Server: Received:", msg)
+        data = json_decode(msg)
+        response = {
+            "type": "echo",
+            "original": data,
+            "processed": True
+        }
+        ws.send(json_encode(response))
+
+    print("Server: Client disconnected")
+
+server = ws_server(8767, handle_client)
+print("Server started on port", server["port"])
+sleep(0.3)
+
+print()
+print("Connecting client...")
+client = ws_connect("ws://localhost:8767/")
+
+welcome = client.recv()
+print("Client: Welcome message:", welcome)
+
+messages = [
+    {"action": "join", "user": "Alice"},
+    {"action": "message", "text": "Hello everyone!"},
+    {"action": "leave", "user": "Alice"}
+]
+
+for msg in messages:
+    client.send(json_encode(msg))
+    print("Client: Sent:", msg)
+    response = client.recv()
+    print("Client: Response:", response)
+    print()
+
+client.close()
+sleep(0.2)
+stop(server)
+print("Chat server test complete!")

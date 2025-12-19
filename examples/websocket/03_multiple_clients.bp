@@ -1,0 +1,62 @@
+print("=== Blueprint: Multiple WebSocket Clients ===")
+print()
+print("Demonstrates multiple clients connecting to one server.")
+print()
+
+client_count = [0]
+
+def handle_client(ws):
+    client_count[0] = client_count[0] + 1
+    my_id = client_count[0]
+    print(f"Server: Client {my_id} connected")
+
+    ws.send(f"Welcome, you are client #{my_id}")
+
+    for msg in ws.messages:
+        print(f"Server: Client {my_id} says: {msg}")
+        ws.send(f"[Client {my_id}] Echo: {msg}")
+
+    print(f"Server: Client {my_id} disconnected")
+
+server = ws_server(8768, handle_client)
+print("Server started on port", server["port"])
+sleep(0.3)
+
+print()
+print("Connecting 3 clients...")
+c1 = ws_connect("ws://localhost:8768/")
+sleep(0.1)
+print("C1 welcome:", c1.recv())
+
+c2 = ws_connect("ws://localhost:8768/")
+sleep(0.1)
+print("C2 welcome:", c2.recv())
+
+c3 = ws_connect("ws://localhost:8768/")
+sleep(0.1)
+print("C3 welcome:", c3.recv())
+
+print()
+print("Sending messages from each client:")
+
+c1.send("Hello from client 1")
+sleep(0.1)
+print("C1 response:", c1.recv())
+
+c2.send("Hello from client 2")
+sleep(0.1)
+print("C2 response:", c2.recv())
+
+c3.send("Hello from client 3")
+sleep(0.1)
+print("C3 response:", c3.recv())
+
+print()
+print("Closing all clients...")
+c1.close()
+c2.close()
+c3.close()
+sleep(0.3)
+
+stop(server)
+print("All done!")

@@ -1,0 +1,55 @@
+print("=== Blueprint: JSON API Client ===")
+print()
+print("Example: Fetching data from a public API")
+print()
+
+print("1. Fetch GitHub user info:")
+resp = http_request("GET", "https://api.github.com/users/octocat",
+    headers={"User-Agent": "Blueprint-Demo"})
+
+if resp.status == 200:
+    user = json_decode(resp.body)
+    print("   Login:", user["login"])
+    print("   Name:", user["name"])
+    print("   Public repos:", user["public_repos"])
+    print("   Followers:", user["followers"])
+else:
+    print("   Error:", resp.status)
+print()
+
+print("2. Fetch multiple endpoints with parallel():")
+def fetch_user(username):
+    resp = http_request("GET", "https://api.github.com/users/" + username,
+        headers={"User-Agent": "Blueprint-Demo"})
+    if resp.status == 200:
+        return json_decode(resp.body)
+    return None
+
+def fetch_octocat():
+    return fetch_user("octocat")
+
+def fetch_torvalds():
+    return fetch_user("torvalds")
+
+def fetch_gvanrossum():
+    return fetch_user("gvanrossum")
+
+results = parallel([fetch_octocat, fetch_torvalds, fetch_gvanrossum])
+
+for user in results:
+    if user:
+        print("   " + user["login"] + ": " + str(user["public_repos"]) + " repos, " + str(user["followers"]) + " followers")
+print()
+
+print("3. POST to echo endpoint:")
+data = {
+    "title": "Hello Blueprint",
+    "items": [1, 2, 3],
+    "nested": {"key": "value"}
+}
+resp = http_request("POST", "https://httpbin.org/post",
+    body=json_encode(data),
+    headers={"Content-Type": "application/json"})
+
+result = json_decode(resp.body)
+print("   Echoed JSON:", result["json"])

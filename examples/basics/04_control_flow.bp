@@ -1,0 +1,49 @@
+print("=== Blueprint: Control Flow ===")
+print()
+
+print("If/Else:")
+score = 85
+grade = ""
+if score >= 90:
+    grade = "A"
+elif score >= 80:
+    grade = "B"
+elif score >= 70:
+    grade = "C"
+else:
+    grade = "F"
+print("  Score", score, "-> Grade", grade)
+print()
+
+print("For loops:")
+print("  Range:", end=" ")
+for i in range(5):
+    print(i, end=" ")
+print()
+
+print("  List iteration:", end=" ")
+fruits = ["apple", "banana", "cherry"]
+for fruit in fruits:
+    print(fruit, end=" ")
+print()
+
+print("  Enumerate:", end=" ")
+for i, fruit in enumerate(fruits):
+    print(str(i) + ":" + fruit, end=" ")
+print()
+print()
+
+print("List comprehensions:")
+squares = [x * x for x in range(6)]
+print("  Squares:", squares)
+
+evens = [x for x in range(10) if x % 2 == 0]
+print("  Evens:", evens)
+
+pairs = [(x, y) for x in range(3) for y in range(3) if x != y]
+print("  Pairs (x != y):", pairs)
+print()
+
+print("Dict comprehensions:")
+square_map = {x: x * x for x in range(5)}
+print("  Square map:", square_map)

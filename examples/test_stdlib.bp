@@ -1,5 +1,0 @@
-load("@bp/llm", "agent")
-
-print("Loaded agent function from @bp/llm stdlib")
-print("agent:", agent)
-print("stdlib loaded successfully!")

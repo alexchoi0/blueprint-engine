@@ -1,0 +1,17 @@
+print("Testing WebSocket with dot notation...")
+
+ws = ws_connect("wss://echo.websocket.org")
+print("Connected!")
+
+ws.send("Hello via dot notation!")
+print("Sent message")
+
+msg = ws.recv()
+print("Received:", msg)
+
+msg2 = ws.recv()
+print("Received:", msg2)
+
+ws.close()
+print("Closed connection")
+print("Done!")

@@ -82,11 +82,37 @@ impl Value {
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::List(l) => {
-                let guard = l.blocking_read();
+                if let Ok(guard) = l.try_read() {
+                    !guard.is_empty()
+                } else {
+                    true
+                }
+            }
+            Value::Dict(d) => {
+                if let Ok(guard) = d.try_read() {
+                    !guard.is_empty()
+                } else {
+                    true
+                }
+            }
+            Value::Tuple(t) => !t.is_empty(),
+            _ => true,
+        }
+    }
+
+    pub async fn is_truthy_async(&self) -> bool {
+        match self {
+            Value::None => false,
+            Value::Bool(b) => *b,
+            Value::Int(i) => *i != 0,
+            Value::Float(f) => *f != 0.0,
+            Value::String(s) => !s.is_empty(),
+            Value::List(l) => {
+                let guard = l.read().await;
                 !guard.is_empty()
             }
             Value::Dict(d) => {
-                let guard = d.blocking_read();
+                let guard = d.read().await;
                 !guard.is_empty()
             }
             Value::Tuple(t) => !t.is_empty(),

@@ -504,9 +504,9 @@ async fn filter_generator_task(
         Value::Generator(gen) => {
             while let Some(item) = gen.next().await {
                 let predicate = if func.is_none() {
-                    item.is_truthy()
+                    item.is_truthy_async().await
                 } else {
-                    call_func(&func, vec![item.clone()]).await?.is_truthy()
+                    call_func(&func, vec![item.clone()]).await?.is_truthy_async().await
                 };
                 if predicate {
                     let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();
@@ -520,9 +520,9 @@ async fn filter_generator_task(
         Value::Iterator(iter) => {
             while let Some(item) = iter.next().await {
                 let predicate = if func.is_none() {
-                    item.is_truthy()
+                    item.is_truthy_async().await
                 } else {
-                    call_func(&func, vec![item.clone()]).await?.is_truthy()
+                    call_func(&func, vec![item.clone()]).await?.is_truthy_async().await
                 };
                 if predicate {
                     let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();
@@ -537,9 +537,9 @@ async fn filter_generator_task(
             let items = l.read().await.clone();
             for item in items {
                 let predicate = if func.is_none() {
-                    item.is_truthy()
+                    item.is_truthy_async().await
                 } else {
-                    call_func(&func, vec![item.clone()]).await?.is_truthy()
+                    call_func(&func, vec![item.clone()]).await?.is_truthy_async().await
                 };
                 if predicate {
                     let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();
@@ -553,9 +553,9 @@ async fn filter_generator_task(
         Value::Tuple(t) => {
             for item in t.iter().cloned() {
                 let predicate = if func.is_none() {
-                    item.is_truthy()
+                    item.is_truthy_async().await
                 } else {
-                    call_func(&func, vec![item.clone()]).await?.is_truthy()
+                    call_func(&func, vec![item.clone()]).await?.is_truthy_async().await
                 };
                 if predicate {
                     let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();

@@ -1,0 +1,41 @@
+print("=== Blueprint: WebSocket Stress Test ===")
+print()
+print("Sending 100 messages through a WebSocket connection.")
+print()
+
+message_count = [0]
+
+def handle_client(ws):
+    for msg in ws.messages:
+        message_count[0] = message_count[0] + 1
+        n = int(msg)
+        ws.send(str(n * 2))
+
+server = ws_server(8769, handle_client)
+print("Server started")
+sleep(0.3)
+
+client = ws_connect("ws://localhost:8769/")
+
+print("Sending 100 messages...")
+errors = 0
+for i in range(100):
+    client.send(str(i))
+    response = client.recv()
+    expected = str(i * 2)
+    if response != expected:
+        print("ERROR at", i, ": expected", expected, ", got", response)
+        errors = errors + 1
+
+print()
+if errors == 0:
+    print("All 100 messages verified successfully!")
+else:
+    print("Completed with", errors, "errors")
+
+print("Server processed:", message_count[0], "messages")
+
+client.close()
+sleep(0.1)
+stop(server)
+print("Test complete!")

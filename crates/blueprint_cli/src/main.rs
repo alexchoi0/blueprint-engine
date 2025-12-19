@@ -1,5 +1,6 @@
 mod args;
 mod runner;
+mod workspace;
 
 use clap::Parser;
 use tokio::runtime::Builder;
@@ -35,6 +36,8 @@ fn main() {
             Commands::Install { package } => runner::install_package(&package).await,
             Commands::Uninstall { package } => runner::uninstall_package(&package).await,
             Commands::List => runner::list_packages().await,
+            Commands::Init => runner::init_workspace().await,
+            Commands::Sync => runner::sync_workspace().await,
         }
     });
 

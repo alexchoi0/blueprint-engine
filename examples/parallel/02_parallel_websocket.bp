@@ -1,0 +1,52 @@
+print("=== Blueprint: Parallel WebSocket Clients ===")
+print()
+print("Multiple WebSocket clients running in parallel.")
+print()
+
+total_messages = [0]
+
+def handle_client(ws):
+    count = 0
+    for msg in ws.messages:
+        count = count + 1
+        ws.send("ack-" + msg)
+    total_messages[0] = total_messages[0] + count
+
+server = ws_server(8771, handle_client)
+sleep(0.3)
+
+def run_client(client_id, num_messages):
+    client = ws_connect("ws://localhost:8771/")
+    for i in range(num_messages):
+        client.send("client" + str(client_id) + "-msg" + str(i))
+        response = client.recv()
+    client.close()
+    return num_messages
+
+def client1():
+    return run_client(1, 50)
+def client2():
+    return run_client(2, 50)
+def client3():
+    return run_client(3, 50)
+def client4():
+    return run_client(4, 50)
+def client5():
+    return run_client(5, 50)
+
+print("Running 5 clients in parallel, 50 messages each...")
+start = now()
+
+results = parallel([client1, client2, client3, client4, client5])
+
+elapsed = now() - start
+
+sleep(0.2)
+stop(server)
+
+print()
+print("Results per client:", results)
+print("Total messages:", sum(results))
+print("Server processed:", total_messages[0])
+print("Time:", elapsed, "s")
+print("Throughput:", int(sum(results) / elapsed), "msg/sec")

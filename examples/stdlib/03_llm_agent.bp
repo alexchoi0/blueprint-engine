@@ -1,0 +1,71 @@
+print("=== Blueprint: LLM Agent Standard Library ===")
+print()
+print("The @bp/llm stdlib provides an AI agent function.")
+print("Note: Requires OPENAI_API_KEY environment variable.")
+print()
+
+load("@bp/llm", "agent")
+
+print("The agent() function:")
+print("  - Sends prompts to LLM APIs (OpenAI, Anthropic, local models)")
+print("  - Supports tool calling for function execution")
+print("  - Supports streaming responses")
+print()
+
+print("Basic usage:")
+print('''
+  response = agent("What is 2 + 2?")
+  print(response)
+''')
+print()
+
+print("With streaming:")
+print('''
+  stream = agent("Write a haiku about Rust", stream=True)
+  for chunk in stream:
+      print(chunk, end="")
+  print()
+  print("Full response:", stream.content)
+''')
+print()
+
+print("With tools:")
+print('''
+  weather_tool = {
+      "name": "get_weather",
+      "description": "Get weather for a location",
+      "parameters": {
+          "type": "object",
+          "properties": {
+              "location": {"type": "string"}
+          },
+          "required": ["location"]
+      }
+  }
+
+  def get_weather(args):
+      return {"temp": 72, "condition": "sunny"}
+
+  result = agent(
+      "What's the weather in San Francisco?",
+      tools=[weather_tool],
+      tool_handlers={"get_weather": get_weather}
+  )
+''')
+print()
+
+print("Using different providers:")
+print('''
+  # OpenAI (default)
+  agent("Hello", model="gpt-4o-mini")
+
+  # Ollama (local)
+  agent("Hello", model="llama3.1:8b", base_url="http://localhost:11434/v1")
+
+  # Together.ai
+  agent("Hello", model="meta-llama/Llama-3.1-70B",
+        base_url="https://api.together.xyz/v1",
+        api_key=env("TOGETHER_API_KEY"))
+''')
+print()
+print("LLM stdlib loaded successfully!")

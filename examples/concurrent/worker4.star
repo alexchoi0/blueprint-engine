@@ -1,7 +1,0 @@
-print("[Worker 4] Starting...")
-sleep(0.08)
-print("[Worker 4] Step 1 complete")
-sleep(0.08)
-print("[Worker 4] Step 2 complete")
-sleep(0.08)
-print("[Worker 4] Done!")

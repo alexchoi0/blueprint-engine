@@ -1,0 +1,48 @@
+print("=== Blueprint: iter() and enumerate() ===")
+print()
+
+print("1. iter() converts collections to generators:")
+items = [10, 20, 30, 40, 50]
+gen = iter(items)
+print("   type(iter([...])):", type(gen))
+print("   Iterating:")
+for item in gen:
+    print("    ", item)
+print()
+
+print("2. iter() with strings:")
+for char in iter("Hello"):
+    print("   ", char)
+print()
+
+print("3. iter() with dicts (iterates keys):")
+data = {"a": 1, "b": 2, "c": 3}
+for key in iter(data):
+    print("   ", key, "->", data[key])
+print()
+
+print("4. enumerate() with index:")
+fruits = ["apple", "banana", "cherry"]
+for i, fruit in enumerate(fruits):
+    print(f"   {i}: {fruit}")
+print()
+
+print("5. enumerate() with custom start:")
+for i, fruit in enumerate(fruits, 1):
+    print(f"   {i}. {fruit}")
+print()
+
+print("6. enumerate() works with generators:")
+def letters():
+    for c in "ABC":
+        emit(c)
+
+for i, letter in enumerate(letters()):
+    print(f"   Letter {i}: {letter}")
+print()
+
+print("7. Combining iter(), map(), filter(), enumerate():")
+numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+pipeline = filter(lambda x: x > 10, map(lambda x: x * 2, iter(numbers)))
+for i, val in enumerate(pipeline):
+    print(f"   [{i}] {val}")

@@ -1,0 +1,44 @@
+print("=== Blueprint: Functions ===")
+print()
+
+def greet(name):
+    return "Hello, " + name + "!"
+
+def add(a, b):
+    return a + b
+
+def factorial(n):
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+def fibonacci(n):
+    if n <= 1:
+        return n
+    a, b = 0, 1
+    for _ in range(n - 1):
+        a, b = b, a + b
+    return b
+
+print("greet('World'):", greet("World"))
+print("add(10, 20):", add(10, 20))
+print("factorial(5):", factorial(5))
+print("fibonacci(10):", fibonacci(10))
+print()
+
+print("Lambda functions:")
+square = lambda x: x * x
+double = lambda x: x * 2
+print("  square(7):", square(7))
+print("  double(21):", double(21))
+print()
+
+print("Default arguments:")
+def power(base, exp=2):
+    result = 1
+    for _ in range(exp):
+        result = result * base
+    return result
+
+print("  power(3):", power(3))
+print("  power(2, 10):", power(2, 10))

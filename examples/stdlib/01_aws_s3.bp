@@ -1,0 +1,35 @@
+print("=== Blueprint: AWS S3 Standard Library ===")
+print()
+print("The @bp/aws stdlib provides S3 operations.")
+print("Note: Actual S3 operations require AWS credentials.")
+print()
+
+load("@bp/aws", "aws_auth", "s3_upload", "s3_download", "s3_list", "s3_delete", "s3_exists", "s3_copy", "s3_get_metadata")
+
+print("Available functions:")
+print("  aws_auth       - Create AWS credentials")
+print("  s3_upload      - Upload content to S3")
+print("  s3_download    - Download content from S3")
+print("  s3_list        - List objects in bucket")
+print("  s3_delete      - Delete an object")
+print("  s3_exists      - Check if object exists")
+print("  s3_copy        - Copy object within S3")
+print("  s3_get_metadata - Get object metadata")
+print()
+
+print("Example usage (requires credentials):")
+print('''
+  creds = aws_auth(
+      access_key_id = env("AWS_ACCESS_KEY_ID"),
+      secret_access_key = env("AWS_SECRET_ACCESS_KEY"),
+      region = "us-east-1"
+  )
+
+  s3_upload(creds, "my-bucket", "data/file.txt", "Hello, S3!")
+  content = s3_download(creds, "my-bucket", "data/file.txt")
+
+  for obj in s3_list(creds, "my-bucket", prefix="data/"):
+      print(obj["key"], obj["size"])
+''')
+print()
+print("AWS stdlib loaded successfully!")

@@ -1,0 +1,39 @@
+print("=== Blueprint: WebSocket Benchmark ===")
+print()
+print("Measuring WebSocket round-trip performance.")
+print()
+
+def handle_client(ws):
+    for msg in ws.messages:
+        ws.send(msg)
+
+server = ws_server(8770, handle_client)
+sleep(0.3)
+
+client = ws_connect("ws://localhost:8770/")
+
+n = 1000
+print("Benchmarking", n, "round-trips...")
+print()
+
+start = now()
+
+for i in range(n):
+    client.send("ping")
+    response = client.recv()
+
+elapsed = now() - start
+
+client.close()
+stop(server)
+
+rate = int(n / elapsed)
+avg_latency = (elapsed / n) * 1000
+
+print("Results:")
+print("  Messages:   ", n)
+print("  Time:       ", elapsed, "seconds")
+print("  Throughput: ", rate, "msg/sec")
+print("  Avg latency:", avg_latency, "ms")
+print()
+print("Benchmark complete!")

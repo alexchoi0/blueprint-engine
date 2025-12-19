@@ -1,0 +1,29 @@
+print("=== Blueprint: Variables and Types ===")
+print()
+
+text = "Hello"
+number = 42
+decimal = 3.14159
+flag = True
+items = [1, 2, 3, 4, 5]
+person = {"name": "Alice", "age": 30}
+
+print("String:", text, "- type:", type(text))
+print("Integer:", number, "- type:", type(number))
+print("Float:", decimal, "- type:", type(decimal))
+print("Boolean:", flag, "- type:", type(flag))
+print("List:", items, "- type:", type(items))
+print("Dict:", person, "- type:", type(person))
+print()
+
+print("List operations:")
+print("  Length:", len(items))
+print("  First:", items[0])
+print("  Last:", items[-1])
+print("  Slice [1:3]:", items[1:3])
+print()
+
+print("Dict operations:")
+print("  Keys:", list(person.keys()))
+print("  Values:", list(person.values()))
+print("  Get name:", person["name"])

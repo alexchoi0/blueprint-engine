@@ -8,7 +8,10 @@ Blueprint lets you write simple, synchronous-looking scripts while the runtime a
 
 - **Implicit Async I/O** - Write sync code, get async performance
 - **Generators** - Lazy iteration with `emit()` for memory-efficient streaming
+- **Lazy map/filter** - First-class generator support: `map()`, `filter()`, `iter()` return generators
+- **WebSocket Support** - Native client and server with `ws_connect()` and `ws_server()`
 - **Triggers** - HTTP servers, cron jobs, and interval timers for daemon mode
+- **Workspace System** - `BP.toml` for project configuration and dependency management
 - **Package Manager** - Auto-install packages from GitHub with `load("@user/repo", ...)`
 - **REPL Server** - Persistent eval sessions for integration with other tools
 - **Concurrent Execution** - Run multiple scripts in parallel
@@ -74,6 +77,10 @@ bp install @user/repo               # Install from GitHub (main branch)
 bp install @user/repo#v1.0          # Install specific version/tag
 bp uninstall @user/repo             # Uninstall package
 bp list                             # List installed packages
+
+# Workspace
+bp init                             # Create BP.toml in current directory
+bp sync                             # Install dependencies from BP.toml
 
 # Other
 bp check script.bp                  # Syntax check only
@@ -153,6 +160,50 @@ for sq in squares(10):
     print(sq)  # Prints 0, 1, 4, 9, 16, ...
 ```
 
+### Lazy Map/Filter
+
+```starlark
+# map() and filter() return generators for lazy evaluation
+doubled = map(lambda x: x * 2, [1, 2, 3, 4, 5])
+evens = filter(lambda x: x % 2 == 0, range(10))
+
+# Chain operations lazily
+result = filter(lambda x: x > 5, map(lambda x: x * 2, range(10)))
+
+# Materialize when needed
+print(list(result))  # [6, 8, 10, 12, 14, 16, 18]
+
+# Convert list to generator with iter()
+for item in iter([1, 2, 3]):
+    print(item)
+```
+
+### WebSocket Client
+
+```starlark
+ws = ws_connect("wss://echo.websocket.org")
+
+ws.send("Hello WebSocket!")
+response = ws.recv()
+print("Received:", response)
+
+ws.close()
+```
+
+### WebSocket Server
+
+```starlark
+def handle_client(ws):
+    print("Client connected")
+    for msg in ws.messages:
+        print("Received:", msg)
+        ws.send("Echo: " + msg)
+    print("Client disconnected")
+
+server = ws_server(8765, handle_client)
+print("WebSocket server running on port 8765")
+```
+
 ### CI/CD Script
 
 ```starlark
@@ -194,9 +245,65 @@ load("@bp/gcp", "gcs_upload", "gcs_download")
 load("@bp/llm", "agent")
 ```
 
-Package location: `~/.blueprint/packages/@user/repo#version/`
+Package location: `~/.blueprint/packages/@user/repo#version/` (or `.blueprint/packages/` in workspace)
 
 Entry point: `lib.bp` in repository root
+
+## Workspace (BP.toml)
+
+Blueprint supports project workspaces with `BP.toml` for dependency management:
+
+```bash
+# Initialize a new workspace
+bp init
+
+# Install all dependencies
+bp sync
+```
+
+### BP.toml Format
+
+```toml
+[workspace]
+name = "my-project"
+version = "0.1.0"
+description = "My Blueprint project"
+
+[dependencies]
+# Simple format: "user/repo" = "version"
+"user/mylib" = "v1.0.0"
+"another/lib" = "main"
+
+# Detailed format
+"user/package" = { git = "https://github.com/user/package.git", tag = "v1.0.0" }
+
+# Local path dependency
+"local/lib" = { path = "./libs/mylib" }
+```
+
+### Path Resolution
+
+When a `BP.toml` exists, `load()` paths are resolved relative to the workspace root:
+
+```
+my-project/
+├── BP.toml
+├── lib/
+│   └── utils.bp
+└── src/
+    └── app.bp
+```
+
+```starlark
+# In src/app.bp - paths resolve from workspace root
+load("lib/utils.bp", "helper")
+
+# Relative paths still work from current file
+load("./sibling.bp", "func")
+load("../other.bp", "func")
+```
+
+Packages are installed to `.blueprint/packages/` within the workspace directory.
 
 ## Triggers
 
@@ -290,6 +397,25 @@ for chunk in http_request("GET", "https://example.com/large-file", stream=True):
     process(chunk)
 ```
 
+### WebSocket
+```starlark
+# Client
+ws = ws_connect("wss://example.com/ws", headers={"Auth": "token"})
+ws.send("hello")
+msg = ws.recv()              # Receive single message
+for msg in ws.messages:      # Iterate all messages
+    print(msg)
+ws.close()
+
+# Server
+def handler(ws):
+    for msg in ws.messages:
+        ws.send("echo: " + msg)
+
+server = ws_server(8765, handler, host="0.0.0.0", path="/ws")
+stop(server)                 # Stop server
+```
+
 ### JSON
 ```starlark
 data = {"name": "Blueprint", "version": 1}
@@ -331,6 +457,29 @@ results = parallel([
     lambda: http_request("GET", "https://api2.com/data"),
     lambda: http_request("GET", "https://api3.com/data"),
 ])
+```
+
+### Lazy Iteration
+```starlark
+# map() and filter() return generators (lazy evaluation)
+doubled = map(lambda x: x * 2, data)
+evens = filter(lambda x: x % 2 == 0, data)
+
+# Chain operations without intermediate lists
+result = filter(pred, map(transform, large_data))
+
+# Materialize with list()
+items = list(result)
+
+# iter() converts collections to generators
+gen = iter([1, 2, 3])
+
+# enumerate() returns generator when given generator
+for i, item in enumerate(gen):
+    print(i, item)
+
+# Generators don't support indexing
+gen[0]  # Error: use list() to materialize first
 ```
 
 ### Assertions

@@ -1,0 +1,20 @@
+print("=== Blueprint: Interval Trigger ===")
+print()
+print("Run a function at regular intervals.")
+print()
+
+state = {"counter": 0, "handle": None}
+
+def tick():
+    state["counter"] = state["counter"] + 1
+    print("Tick", state["counter"], "at", now())
+
+    if state["counter"] >= 5:
+        print()
+        print("Stopping after 5 ticks")
+        stop(state["handle"])
+
+state["handle"] = interval(1, tick)
+print("Interval started:", state["handle"]["id"])
+print("Running:", running(state["handle"]))
+print()

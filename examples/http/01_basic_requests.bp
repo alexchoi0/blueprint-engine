@@ -1,0 +1,38 @@
+print("=== Blueprint: HTTP Requests ===")
+print()
+
+print("1. Simple GET request:")
+resp = http_request("GET", "https://httpbin.org/get")
+print("   Status:", resp.status)
+print("   Headers:", list(resp.headers.keys())[:3], "...")
+print()
+
+print("2. GET with query parameters:")
+resp = http_request("GET", "https://httpbin.org/get?name=Blueprint&version=1.0")
+data = json_decode(resp.body)
+print("   Args received:", data["args"])
+print()
+
+print("3. POST with JSON body:")
+payload = json_encode({"message": "Hello from Blueprint!", "count": 42})
+resp = http_request("POST", "https://httpbin.org/post",
+    body=payload,
+    headers={"Content-Type": "application/json"})
+data = json_decode(resp.body)
+print("   Sent JSON:", data["json"])
+print()
+
+print("4. Custom headers:")
+resp = http_request("GET", "https://httpbin.org/headers",
+    headers={
+        "X-Custom-Header": "Blueprint-Demo",
+        "User-Agent": "Blueprint/1.0"
+    })
+data = json_decode(resp.body)
+print("   X-Custom-Header:", data["headers"].get("X-Custom-Header", "not found"))
+print()
+
+print("5. Response inspection:")
+resp = http_request("GET", "https://httpbin.org/status/201")
+print("   Status code:", resp.status)
+print("   Content-Type:", resp.headers.get("content-type", "unknown"))

@@ -1,0 +1,30 @@
+print("=== Blueprint: HTTP Streaming ===")
+print()
+print("Stream large responses without loading everything into memory.")
+print()
+
+print("1. Streaming bytes:")
+total_bytes = 0
+chunk_count = 0
+
+for chunk in http_request("GET", "https://httpbin.org/stream-bytes/5000", stream=True):
+    chunk_count = chunk_count + 1
+    chunk_size = len(chunk)
+    total_bytes = total_bytes + chunk_size
+    print("   Chunk " + str(chunk_count) + ": " + str(chunk_size) + " bytes")
+
+print()
+print("   Total: " + str(chunk_count) + " chunks, " + str(total_bytes) + " bytes")
+print()
+
+print("2. Streaming JSON lines:")
+print("   (httpbin returns newline-delimited JSON)")
+line_count = 0
+
+for chunk in http_request("GET", "https://httpbin.org/stream/3", stream=True):
+    line_count = line_count + 1
+    display = chunk[:47] + "..." if len(chunk) > 50 else chunk
+    print("   Line " + str(line_count) + ": " + display)
+
+print()
+print("   Received " + str(line_count) + " JSON lines")

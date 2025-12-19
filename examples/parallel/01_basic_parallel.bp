@@ -1,0 +1,69 @@
+print("=== Blueprint: Parallel Execution ===")
+print()
+print("Run multiple tasks concurrently with parallel().")
+print()
+
+print("1. Simple parallel tasks:")
+def task1():
+    sleep(0.1)
+    return "Task 1 done"
+
+def task2():
+    sleep(0.1)
+    return "Task 2 done"
+
+def task3():
+    sleep(0.1)
+    return "Task 3 done"
+
+start = now()
+results = parallel([task1, task2, task3])
+elapsed = now() - start
+
+print("   Results:", results)
+print("   Time:", elapsed, "s (parallel vs ~0.3s sequential)")
+print()
+
+print("2. Parallel computation:")
+numbers = [1, 2, 3, 4, 5]
+
+def slow_square(n):
+    sleep(0.05)
+    return n * n
+
+def sq1():
+    return slow_square(1)
+def sq2():
+    return slow_square(2)
+def sq3():
+    return slow_square(3)
+def sq4():
+    return slow_square(4)
+def sq5():
+    return slow_square(5)
+
+start = now()
+squares = parallel([sq1, sq2, sq3, sq4, sq5])
+elapsed = now() - start
+
+print("   Squares:", squares)
+print("   Time:", elapsed, "s (parallel vs ~0.25s sequential)")
+print()
+
+print("3. Parallel HTTP requests:")
+def fetch1():
+    return http_request("GET", "https://httpbin.org/get").status
+def fetch2():
+    return http_request("GET", "https://httpbin.org/get").status
+def fetch3():
+    return http_request("GET", "https://httpbin.org/get").status
+
+start = now()
+statuses = parallel([fetch1, fetch2, fetch3])
+elapsed = now() - start
+
+print("   Status codes:", statuses)
+print("   Time:", elapsed, "s")
+print()
+
+print("Parallel execution complete!")

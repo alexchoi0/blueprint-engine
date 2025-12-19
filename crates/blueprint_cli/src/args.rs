@@ -67,4 +67,10 @@ pub enum Commands {
 
     #[command(about = "List installed packages")]
     List,
+
+    #[command(about = "Initialize a new BP.toml workspace")]
+    Init,
+
+    #[command(about = "Install dependencies from BP.toml")]
+    Sync,
 }
