@@ -4,7 +4,7 @@ use std::sync::Arc;
 use blueprint_core::{
     BlueprintError, PackageSpec, Result, Value, fetch_package, find_workspace_root, get_packages_dir,
 };
-use blueprint_eval::{Evaluator, Scope, triggers};
+use blueprint_eval::{Checker, Evaluator, Scope, triggers};
 use blueprint_parser::parse;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -119,6 +119,19 @@ async fn run_single_script(
 
     let filename = path.to_string_lossy().to_string();
     let module = parse(&filename, &source)?;
+
+    let mut checker = Checker::new().with_file(path);
+    let errors = checker.check(&module);
+    if !errors.is_empty() {
+        let mut message = String::new();
+        for error in &errors {
+            if !message.is_empty() {
+                message.push('\n');
+            }
+            message.push_str(&format!("{}: {}", error.location, error.message));
+        }
+        return Err(BlueprintError::ValueError { message });
+    }
 
     let mut evaluator = Evaluator::new();
     evaluator.set_file(path);
