@@ -1,4 +1,5 @@
 mod agent;
+mod approval;
 mod builtins;
 mod console;
 mod file;
@@ -13,6 +14,7 @@ use crate::eval::Evaluator;
 
 pub fn register_all(evaluator: &mut Evaluator) {
     agent::register(evaluator);
+    approval::register(evaluator);
     builtins::register(evaluator);
     console::register(evaluator);
     file::register(evaluator);
