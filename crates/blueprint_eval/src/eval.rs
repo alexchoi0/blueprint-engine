@@ -245,6 +245,10 @@ impl Evaluator {
             return self.resolve_stdlib_path(stdlib_path);
         }
 
+        if module_path.starts_with('@') && !module_path.starts_with("@bp/") {
+            return self.resolve_package_path(module_path);
+        }
+
         let current_dir = if let Some(ref current_file) = self.current_file {
             current_file
                 .parent()
@@ -261,6 +265,80 @@ impl Evaluator {
         };
 
         Ok(resolved)
+    }
+
+    fn resolve_package_path(&self, module_path: &str) -> Result<PathBuf> {
+        let path = module_path.strip_prefix('@').unwrap_or(module_path);
+
+        let (repo_path, version) = if let Some(idx) = path.find('#') {
+            (&path[..idx], Some(&path[idx + 1..]))
+        } else {
+            (path, None)
+        };
+
+        let parts: Vec<&str> = repo_path.splitn(2, '/').collect();
+        if parts.len() != 2 {
+            return Err(BlueprintError::IoError {
+                path: module_path.to_string(),
+                message: "Invalid package format. Expected @user/repo or @user/repo#version".into(),
+            });
+        }
+
+        let user = parts[0];
+        let repo = parts[1];
+        let version_str = version.unwrap_or("main");
+
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let package_dir = PathBuf::from(&home)
+            .join(".blueprint")
+            .join("packages")
+            .join(user)
+            .join(format!("{}#{}", repo, version_str));
+
+        let lib_path = package_dir.join("lib.bp");
+
+        if lib_path.exists() {
+            return Ok(lib_path);
+        }
+
+        eprintln!("Installing package @{}/{}#{}...", user, repo, version_str);
+        self.fetch_package(user, repo, version_str, &package_dir)?;
+
+        if lib_path.exists() {
+            Ok(lib_path)
+        } else {
+            Err(BlueprintError::IoError {
+                path: module_path.to_string(),
+                message: format!("Package does not contain lib.bp"),
+            })
+        }
+    }
+
+    fn fetch_package(&self, user: &str, repo: &str, version: &str, dest: &PathBuf) -> Result<()> {
+        let repo_url = format!("https://github.com/{}/{}.git", user, repo);
+
+        let output = std::process::Command::new("git")
+            .args(["clone", "--depth", "1", "--branch", version, &repo_url])
+            .arg(dest)
+            .output()
+            .map_err(|e| BlueprintError::IoError {
+                path: repo_url.clone(),
+                message: e.to_string(),
+            })?;
+
+        if !output.status.success() {
+            std::fs::remove_dir_all(dest).ok();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(BlueprintError::IoError {
+                path: repo_url,
+                message: format!("Failed to clone: {}", stderr.trim()),
+            });
+        }
+
+        std::fs::remove_dir_all(dest.join(".git")).ok();
+
+        eprintln!("Installed @{}/{}#{}", user, repo, version);
+        Ok(())
     }
 
     fn resolve_stdlib_path(&self, module_name: &str) -> Result<PathBuf> {

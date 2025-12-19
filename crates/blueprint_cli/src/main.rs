@@ -32,6 +32,9 @@ fn main() {
             Commands::Check { scripts, verbose } => runner::check_scripts(scripts, verbose).await,
             Commands::Eval { expression, port } => runner::eval_expression(&expression, port).await,
             Commands::Repl { port } => runner::repl(port).await,
+            Commands::Install { package } => runner::install_package(&package).await,
+            Commands::Uninstall { package } => runner::uninstall_package(&package).await,
+            Commands::List => runner::list_packages().await,
         }
     });
 

@@ -52,4 +52,19 @@ pub enum Commands {
         #[arg(short, long, help = "Start REPL server on specified port")]
         port: Option<u16>,
     },
+
+    #[command(about = "Install a package")]
+    Install {
+        #[arg(help = "Package to install (e.g., @user/repo or @user/repo#v1.0)")]
+        package: String,
+    },
+
+    #[command(about = "Uninstall a package")]
+    Uninstall {
+        #[arg(help = "Package to uninstall (e.g., @user/repo or @user/repo#v1.0)")]
+        package: String,
+    },
+
+    #[command(about = "List installed packages")]
+    List,
 }
