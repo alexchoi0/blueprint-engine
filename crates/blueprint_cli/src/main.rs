@@ -31,6 +31,7 @@ fn main() {
             }
             Commands::Check { scripts, verbose } => runner::check_scripts(scripts, verbose).await,
             Commands::Eval { expression } => runner::eval_expression(&expression).await,
+            Commands::Repl => runner::repl().await,
         }
     });
 
