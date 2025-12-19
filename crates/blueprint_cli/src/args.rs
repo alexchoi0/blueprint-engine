@@ -13,8 +13,11 @@ pub struct Cli {
 pub enum Commands {
     #[command(about = "Run one or more Starlark scripts")]
     Run {
-        #[arg(required = true, num_args = 1..)]
+        #[arg(required_unless_present = "exec", num_args = 1..)]
         scripts: Vec<PathBuf>,
+
+        #[arg(short = 'e', long = "exec", help = "Execute inline code instead of files")]
+        exec: Option<String>,
 
         #[arg(short = 'j', long, default_value = "0", help = "Max concurrent scripts (0 = unlimited)")]
         jobs: usize,

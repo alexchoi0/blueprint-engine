@@ -18,10 +18,17 @@ fn main() {
         match cli.command {
             Commands::Run {
                 scripts,
+                exec,
                 jobs,
                 verbose,
                 script_args,
-            } => runner::run_scripts(scripts, jobs, verbose, script_args).await,
+            } => {
+                if let Some(code) = exec {
+                    runner::run_inline(&code, verbose, script_args).await
+                } else {
+                    runner::run_scripts(scripts, jobs, verbose, script_args).await
+                }
+            }
             Commands::Check { scripts, verbose } => runner::check_scripts(scripts, verbose).await,
             Commands::Eval { expression } => runner::eval_expression(&expression).await,
         }

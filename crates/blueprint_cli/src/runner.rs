@@ -189,6 +189,40 @@ pub async fn check_scripts(scripts: Vec<PathBuf>, verbose: bool) -> Result<()> {
     }
 }
 
+pub async fn run_inline(code: &str, verbose: bool, script_args: Vec<String>) -> Result<()> {
+    let module = parse("<inline>", code)?;
+
+    let mut evaluator = Evaluator::new();
+    let scope = Scope::new_global();
+
+    let argv: Vec<Value> = std::iter::once(Value::String(Arc::new("<inline>".to_string())))
+        .chain(script_args.into_iter().map(|s| Value::String(Arc::new(s))))
+        .collect();
+
+    scope
+        .define("argv", Value::List(Arc::new(tokio::sync::RwLock::new(argv))))
+        .await;
+
+    scope
+        .define("__file__", Value::String(Arc::new("<inline>".to_string())))
+        .await;
+
+    if verbose {
+        scope.define("__verbose__", Value::Bool(true)).await;
+    }
+
+    evaluator.eval(&module, scope).await?;
+
+    if triggers::has_active_triggers().await {
+        if verbose {
+            eprintln!("Active triggers detected, waiting for shutdown...");
+        }
+        triggers::wait_for_shutdown().await;
+    }
+
+    Ok(())
+}
+
 pub async fn eval_expression(expression: &str) -> Result<()> {
     let wrapped = format!("__result__ = {}", expression);
     let module = parse("<eval>", &wrapped)?;
