@@ -1,0 +1,71 @@
+load("@bp/llm", "agent")
+
+get_weather_tool = {
+    "name": "get_weather",
+    "description": "Get current weather for a location",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "location": {
+                "type": "string",
+                "description": "City name (e.g., 'San Francisco, CA')"
+            }
+        },
+        "required": ["location"]
+    }
+}
+
+# OpenAI (default)
+# result = agent(
+#     "What's the weather like in San Francisco?",
+#     tools=[get_weather_tool],
+#     tool_handlers={"get_weather": http_request},
+#     model="gpt-4o-mini"
+# )
+
+# Ollama (local)
+# result = agent(
+#     "What's the weather like in San Francisco?",
+#     tools=[get_weather_tool],
+#     tool_handlers={"get_weather": http_request},
+#     model="llama3.1:8b",
+#     base_url="http://localhost:11434/v1"
+# )
+
+# Together.ai
+# result = agent(
+#     "What's the weather like in San Francisco?",
+#     tools=[get_weather_tool],
+#     tool_handlers={"get_weather": http_request},
+#     model="meta-llama/Llama-3.1-70B-Instruct-Turbo",
+#     base_url="https://api.together.xyz/v1",
+#     api_key=env("TOGETHER_API_KEY")
+# )
+
+# Groq
+# result = agent(
+#     "What's the weather like in San Francisco?",
+#     tools=[get_weather_tool],
+#     tool_handlers={"get_weather": http_request},
+#     model="llama-3.1-70b-versatile",
+#     base_url="https://api.groq.com/openai/v1",
+#     api_key=env("GROQ_API_KEY")
+# )
+
+result = agent(
+    "What's the weather like in San Francisco?",
+    tools=[get_weather_tool],
+    tool_handlers={"get_weather": http_request},
+    model="gpt-4o-mini"
+)
+
+print("Agent response:", result["content"])
+print("Model used:", result["model"])
+print("Tokens:", result["tokens"])
+
+if "tool_calls" in result:
+    print("\nTool calls made:")
+    for call in result["tool_calls"]:
+        print("  - Tool:", call["name"])
+        print("    Args:", call["arguments"])
+        print("    Result:", call["result"])

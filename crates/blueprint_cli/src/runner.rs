@@ -223,7 +223,15 @@ pub async fn run_inline(code: &str, verbose: bool, script_args: Vec<String>) -> 
     Ok(())
 }
 
-pub async fn eval_expression(expression: &str) -> Result<()> {
+pub async fn eval_expression(expression: &str, port: Option<u16>) -> Result<()> {
+    if let Some(p) = port {
+        eval_remote(expression, p).await
+    } else {
+        eval_local(expression).await
+    }
+}
+
+async fn eval_local(expression: &str) -> Result<()> {
     let wrapped = format!("__result__ = {}", expression);
     let module = parse("<eval>", &wrapped)?;
 
@@ -241,7 +249,51 @@ pub async fn eval_expression(expression: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn repl() -> Result<()> {
+async fn eval_remote(code: &str, port: u16) -> Result<()> {
+    #[derive(serde::Deserialize)]
+    struct EvalResponse {
+        success: bool,
+        result: Option<String>,
+        error: Option<String>,
+    }
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("http://127.0.0.1:{}/eval", port))
+        .json(&serde_json::json!({"code": code}))
+        .send()
+        .await
+        .map_err(|e| BlueprintError::HttpError {
+            url: format!("http://127.0.0.1:{}/eval", port),
+            message: e.to_string(),
+        })?;
+
+    let eval_resp: EvalResponse = resp.json().await.map_err(|e| BlueprintError::HttpError {
+        url: format!("http://127.0.0.1:{}/eval", port),
+        message: e.to_string(),
+    })?;
+
+    if eval_resp.success {
+        if let Some(result) = eval_resp.result {
+            println!("{}", result);
+        }
+        Ok(())
+    } else {
+        Err(BlueprintError::InternalError {
+            message: eval_resp.error.unwrap_or_else(|| "unknown error".to_string()),
+        })
+    }
+}
+
+pub async fn repl(port: Option<u16>) -> Result<()> {
+    if let Some(p) = port {
+        repl_server(p).await
+    } else {
+        repl_interactive().await
+    }
+}
+
+async fn repl_interactive() -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
     println!("Blueprint REPL (type 'exit' or Ctrl+D to quit)");
@@ -272,39 +324,123 @@ pub async fn repl() -> Result<()> {
             break;
         }
 
-        let is_expr = !trimmed.contains('=')
-            && !trimmed.starts_with("def ")
-            && !trimmed.starts_with("if ")
-            && !trimmed.starts_with("for ")
-            && !trimmed.starts_with("print(")
-            && !trimmed.starts_with("load(");
-
-        let code = if is_expr {
-            format!("__repl_result__ = {}", trimmed)
-        } else {
-            trimmed.to_string()
-        };
-
-        match parse("<repl>", &code) {
-            Ok(module) => {
-                match evaluator.eval(&module, scope.clone()).await {
-                    Ok(_) => {
-                        if is_expr {
-                            if let Some(result) = scope.get("__repl_result__").await {
-                                if !result.is_none() {
-                                    println!("{}", result.repr());
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => eprintln!("error: {}", e),
-                }
-            }
+        let result = eval_code_in_scope(&mut evaluator, &scope, trimmed).await;
+        match result {
+            Ok(Some(value)) => println!("{}", value),
+            Ok(None) => {}
             Err(e) => eprintln!("error: {}", e),
         }
     }
 
     println!();
+    Ok(())
+}
+
+async fn eval_code_in_scope(
+    evaluator: &mut Evaluator,
+    scope: &Arc<Scope>,
+    code: &str,
+) -> Result<Option<String>> {
+    let is_expr = !code.contains('=')
+        && !code.starts_with("def ")
+        && !code.starts_with("if ")
+        && !code.starts_with("for ")
+        && !code.starts_with("print(")
+        && !code.starts_with("load(");
+
+    let wrapped = if is_expr {
+        format!("__repl_result__ = {}", code)
+    } else {
+        code.to_string()
+    };
+
+    let module = parse("<repl>", &wrapped)?;
+    evaluator.eval(&module, scope.clone()).await?;
+
+    if is_expr {
+        if let Some(result) = scope.get("__repl_result__").await {
+            if !result.is_none() {
+                return Ok(Some(result.repr()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+async fn repl_server(port: u16) -> Result<()> {
+    use axum::{extract::State, routing::post, Json, Router};
+    use std::net::SocketAddr;
+    use tokio::sync::Mutex;
+
+    let evaluator = Arc::new(Mutex::new(Evaluator::new()));
+    let scope = Scope::new_global();
+
+    #[derive(serde::Deserialize)]
+    struct EvalRequest {
+        code: String,
+    }
+
+    #[derive(serde::Serialize)]
+    struct EvalResponse {
+        success: bool,
+        result: Option<String>,
+        error: Option<String>,
+    }
+
+    let state = (evaluator, scope);
+
+    let app = Router::new()
+        .route(
+            "/eval",
+            post(
+                |State((eval, scope)): State<(Arc<Mutex<Evaluator>>, Arc<Scope>)>,
+                 Json(req): Json<EvalRequest>| async move {
+                    let mut evaluator = eval.lock().await;
+                    match eval_code_in_scope(&mut evaluator, &scope, &req.code).await {
+                        Ok(result) => Json(EvalResponse {
+                            success: true,
+                            result,
+                            error: None,
+                        }),
+                        Err(e) => Json(EvalResponse {
+                            success: false,
+                            result: None,
+                            error: Some(e.to_string()),
+                        }),
+                    }
+                },
+            ),
+        )
+        .route(
+            "/shutdown",
+            post(|| async {
+                tokio::spawn(async {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    std::process::exit(0);
+                });
+                "shutting down"
+            }),
+        )
+        .with_state(state);
+
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    println!("REPL server listening on http://{}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+        BlueprintError::IoError {
+            path: format!("127.0.0.1:{}", port),
+            message: e.to_string(),
+        }
+    })?;
+
+    axum::serve(listener, app).await.map_err(|e| {
+        BlueprintError::IoError {
+            path: format!("127.0.0.1:{}", port),
+            message: e.to_string(),
+        }
+    })?;
+
     Ok(())
 }
 
