@@ -31,7 +31,7 @@ pub fn register(evaluator: &mut Evaluator) {
     evaluator.register_native(NativeFunction::new("getattr", getattr));
     evaluator.register_native(NativeFunction::new("repr", repr));
     evaluator.register_native(NativeFunction::new("fail", fail));
-    evaluator.register_native(NativeFunction::new("assert", assert_));
+    evaluator.register_native(NativeFunction::new("assert_", assert_));
 }
 
 async fn len(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> {
@@ -653,7 +653,7 @@ async fn fail(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value
 async fn assert_(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> {
     if args.is_empty() || args.len() > 2 {
         return Err(BlueprintError::ArgumentError {
-            message: format!("assert() takes 1 or 2 arguments ({} given)", args.len()),
+            message: format!("assert_() takes 1 or 2 arguments ({} given)", args.len()),
         });
     }
 
