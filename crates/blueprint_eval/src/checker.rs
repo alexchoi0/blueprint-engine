@@ -201,6 +201,22 @@ impl Checker {
             }
 
             ExprP::Call(callee, args) => {
+                if let ExprP::Dot(target, method) = &callee.node {
+                    let method_name = method.node.as_str();
+                    if Self::is_mutating_method(method_name) {
+                        if let Some(var_name) = self.get_identifier_name(target) {
+                            if scope.is_frozen(&var_name) {
+                                self.errors.push(CheckerError {
+                                    message: format!(
+                                        "cannot call mutating method '.{}()' on frozen import '{}'",
+                                        method_name, var_name
+                                    ),
+                                    location: self.get_location(&expr.span),
+                                });
+                            }
+                        }
+                    }
+                }
                 self.check_expr(callee, scope);
                 for arg in &args.args {
                     match &arg.node {
@@ -398,6 +414,20 @@ impl Checker {
     fn get_param_default<'a>(&self, param: &'a AstParameter) -> Option<&'a AstExpr> {
         match &param.node {
             ParameterP::Normal(_, _, Some(default)) => Some(default.as_ref()),
+            _ => None,
+        }
+    }
+
+    fn is_mutating_method(method_name: &str) -> bool {
+        matches!(
+            method_name,
+            "append" | "extend" | "insert" | "pop" | "remove" | "clear" | "reverse"
+        )
+    }
+
+    fn get_identifier_name(&self, expr: &AstExpr) -> Option<String> {
+        match &expr.node {
+            ExprP::Identifier(ident) => Some(ident.node.ident.clone()),
             _ => None,
         }
     }

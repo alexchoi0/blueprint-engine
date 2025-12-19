@@ -6,10 +6,9 @@ assert(public_list[0] == 1, "public_list[0] should be 1")
 assert(public_func() == "public function result", "public_func should return correct value")
 assert(get_public_list()[0] == 1, "get_public_list()[0] should be 1")
 
-public_list.append(4)
-assert(len(public_list) == 4, "local public_list should have 4 elements after append")
-
-original = get_public_list()
-assert(len(original) == 3, "original list from module should still have 3 elements (import isolation)")
+local_list = public_list.copy()
+local_list.append(4)
+assert(len(local_list) == 4, "local copy should have 4 elements after append")
+assert(len(public_list) == 3, "original import should still have 3 elements")
 
 print("All import tests passed!")
