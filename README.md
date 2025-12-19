@@ -9,6 +9,7 @@ Blueprint lets you write simple, synchronous-looking scripts while the runtime a
 - **Implicit Async I/O** - Write sync code, get async performance
 - **Concurrent Execution** - Run multiple scripts in parallel with `bp run "*.star"`
 - **Parallel Function** - Run tasks concurrently within a script with `parallel()`
+- **Module System** - Import functions and values from other files with `load()`
 - **Native Functions** - File I/O, HTTP requests, process execution, JSON, and more
 - **Full Starlark Support** - Functions, lambdas, comprehensions, f-strings
 - **Fast** - Built on Rust and Tokio for maximum performance
@@ -206,6 +207,61 @@ s.find("World")             # 7
 ```python
 fail("Something went wrong")    # Exit with error
 assert(x > 0, "x must be positive")
+```
+
+## Module System
+
+Import functions and values from other `.star` files using `load()`:
+
+```python
+# lib/utils.star
+PI = 3.14159
+
+def greet(name):
+    return "Hello, " + name + "!"
+
+def add(a, b):
+    return a + b
+```
+
+```python
+# main.star
+load("lib/utils.star", "greet", "add", "PI")
+
+print(greet("World"))    # Hello, World!
+print(add(2, 3))         # 5
+print(PI)                # 3.14159
+```
+
+### Aliasing Imports
+
+Rename symbols when importing:
+
+```python
+load("lib/utils.star", say_hello="greet", sum="add")
+
+say_hello("Blueprint")   # Uses greet() as say_hello()
+sum(1, 2)                # Uses add() as sum()
+```
+
+### Relative Paths
+
+```python
+load("utils.star", "func")           # Same directory
+load("lib/utils.star", "func")       # Subdirectory
+load("../common/utils.star", "func") # Parent directory
+```
+
+### Nested Modules
+
+Modules can load other modules:
+
+```python
+# lib/advanced.star
+load("math.star", "square")
+
+def square_sum(a, b):
+    return square(a) + square(b)
 ```
 
 ## Script Globals
