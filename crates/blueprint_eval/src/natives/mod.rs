@@ -6,6 +6,7 @@ mod http;
 mod json;
 mod parallel;
 mod process;
+mod redact;
 mod time;
 
 use crate::eval::Evaluator;
@@ -19,5 +20,6 @@ pub fn register_all(evaluator: &mut Evaluator) {
     json::register(evaluator);
     parallel::register(evaluator);
     process::register(evaluator);
+    redact::register(evaluator);
     time::register(evaluator);
 }
