@@ -89,7 +89,7 @@ impl Evaluator {
             StmtP::AssignModify(lhs, op, rhs) => {
                 let current = self.eval_assign_target_value(lhs, scope.clone()).await?;
                 let rhs_val = self.eval_expr(rhs, scope.clone()).await?;
-                let new_val = self.apply_assign_op(*op, current, rhs_val)?;
+                let new_val = self.apply_assign_op(*op, current, rhs_val).await?;
                 self.assign_target(lhs, new_val, scope).await?;
                 Ok(Value::None)
             }
@@ -241,6 +241,10 @@ impl Evaluator {
     }
 
     fn resolve_module_path(&self, module_path: &str) -> Result<PathBuf> {
+        if let Some(stdlib_path) = module_path.strip_prefix("@bp/") {
+            return self.resolve_stdlib_path(stdlib_path);
+        }
+
         let current_dir = if let Some(ref current_file) = self.current_file {
             current_file
                 .parent()
@@ -257,6 +261,46 @@ impl Evaluator {
         };
 
         Ok(resolved)
+    }
+
+    fn resolve_stdlib_path(&self, module_name: &str) -> Result<PathBuf> {
+        let filename = format!("{}.bp", module_name);
+
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let stdlib_path = exe_dir.join("stdlib").join(&filename);
+                if stdlib_path.exists() {
+                    return Ok(stdlib_path);
+                }
+
+                let stdlib_path = exe_dir.join("../stdlib").join(&filename);
+                if stdlib_path.exists() {
+                    return Ok(stdlib_path);
+                }
+            }
+        }
+
+        if let Ok(cwd) = std::env::current_dir() {
+            let stdlib_path = cwd.join("stdlib").join(&filename);
+            if stdlib_path.exists() {
+                return Ok(stdlib_path);
+            }
+        }
+
+        if let Ok(home) = std::env::var("HOME") {
+            let stdlib_path = PathBuf::from(home)
+                .join(".blueprint")
+                .join("stdlib")
+                .join(&filename);
+            if stdlib_path.exists() {
+                return Ok(stdlib_path);
+            }
+        }
+
+        Err(BlueprintError::IoError {
+            path: format!("@bp/{}", module_name),
+            message: format!("stdlib module '{}' not found", module_name),
+        })
     }
 
     #[async_recursion::async_recursion]
@@ -416,7 +460,7 @@ impl Evaluator {
                 }
 
                 let right = self.eval_expr(rhs, scope).await?;
-                self.eval_binary_op(left, *op, right)
+                self.eval_binary_op(left, *op, right).await
             }
 
             ExprP::If(triple) => {
@@ -515,9 +559,9 @@ impl Evaluator {
         }
     }
 
-    fn eval_binary_op(&self, left: Value, op: BinOp, right: Value) -> Result<Value> {
+    async fn eval_binary_op(&self, left: Value, op: BinOp, right: Value) -> Result<Value> {
         match op {
-            BinOp::Add => self.eval_add(left, right),
+            BinOp::Add => self.eval_add(left, right).await,
             BinOp::Subtract => self.eval_sub(left, right),
             BinOp::Multiply => self.eval_mul(left, right),
             BinOp::Divide => self.eval_div(left, right),
@@ -539,7 +583,7 @@ impl Evaluator {
         }
     }
 
-    fn eval_add(&self, left: Value, right: Value) -> Result<Value> {
+    async fn eval_add(&self, left: Value, right: Value) -> Result<Value> {
         match (&left, &right) {
             (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
             (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
@@ -549,8 +593,8 @@ impl Evaluator {
                 Ok(Value::String(Arc::new(format!("{}{}", a, b))))
             }
             (Value::List(a), Value::List(b)) => {
-                let mut result = a.blocking_read().clone();
-                result.extend(b.blocking_read().iter().cloned());
+                let mut result = a.read().await.clone();
+                result.extend(b.read().await.iter().cloned());
                 Ok(Value::List(Arc::new(tokio::sync::RwLock::new(result))))
             }
             _ => Err(BlueprintError::TypeError {
@@ -1230,9 +1274,9 @@ impl Evaluator {
         }
     }
 
-    fn apply_assign_op(&self, op: AssignOp, left: Value, right: Value) -> Result<Value> {
+    async fn apply_assign_op(&self, op: AssignOp, left: Value, right: Value) -> Result<Value> {
         match op {
-            AssignOp::Add => self.eval_add(left, right),
+            AssignOp::Add => self.eval_add(left, right).await,
             AssignOp::Subtract => self.eval_sub(left, right),
             AssignOp::Multiply => self.eval_mul(left, right),
             AssignOp::Divide => self.eval_div(left, right),
@@ -1351,6 +1395,26 @@ impl Evaluator {
         })?;
 
         self.eval_expr(body, call_scope).await
+    }
+
+    pub async fn call_lambda_public(
+        &self,
+        func: &blueprint_core::LambdaFunction,
+        args: Vec<Value>,
+        kwargs: HashMap<String, Value>,
+    ) -> Result<Value> {
+        let scope = Scope::new_global();
+        self.call_lambda(func, args, kwargs, scope).await
+    }
+
+    pub async fn call_function_public(
+        &self,
+        func: &blueprint_core::UserFunction,
+        args: Vec<Value>,
+        kwargs: HashMap<String, Value>,
+    ) -> Result<Value> {
+        let scope = Scope::new_global();
+        self.call_user_function(func, args, kwargs, scope).await
     }
 
     async fn bind_parameters(
