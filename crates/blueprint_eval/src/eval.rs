@@ -324,12 +324,6 @@ impl Evaluator {
             }
         }
 
-        let mut cache_write = cache.write().await;
-
-        if let Some(frozen) = cache_write.get(&canonical_path) {
-            return self.bind_load_args(load, &frozen.exports, scope, module_path).await;
-        }
-
         let source = tokio::fs::read_to_string(&resolved_path)
             .await
             .map_err(|e| BlueprintError::IoError {
@@ -352,7 +346,10 @@ impl Evaluator {
         let exports = module_scope.exports().await;
         let frozen = Arc::new(FrozenModule { exports });
 
-        cache_write.insert(canonical_path, frozen.clone());
+        {
+            let mut cache_write = cache.write().await;
+            cache_write.insert(canonical_path, frozen.clone());
+        }
 
         self.bind_load_args(load, &frozen.exports, scope, module_path).await
     }

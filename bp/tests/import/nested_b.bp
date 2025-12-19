@@ -1,0 +1,7 @@
+load("./nested_a.bp", "NESTED_A_VALUE", "func_a")
+
+NESTED_B_VALUE = "from_b"
+USES_A = NESTED_A_VALUE + "_via_b"
+
+def func_b():
+    return func_a() + "_via_b"

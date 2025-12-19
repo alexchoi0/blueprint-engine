@@ -1,0 +1,6 @@
+load("./nested_b.bp", "NESTED_B_VALUE", "func_b")
+
+assert(NESTED_B_VALUE == "from_b", "NESTED_B_VALUE should be accessible")
+assert(func_b() == "func_a_result_via_b", "func_b() should work")
+
+print("All nested isolation tests passed!")

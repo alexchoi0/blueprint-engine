@@ -1,0 +1,7 @@
+load("./nested_b.bp", "NESTED_B_VALUE", "USES_A", "func_b")
+
+assert(NESTED_B_VALUE == "from_b", "NESTED_B_VALUE should be 'from_b'")
+assert(USES_A == "from_a_via_b", "USES_A should be 'from_a_via_b'")
+assert(func_b() == "func_a_result_via_b", "func_b() should return 'func_a_result_via_b'")
+
+print("All nested import tests passed!")

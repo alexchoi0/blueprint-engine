@@ -1,0 +1,5 @@
+NESTED_A_VALUE = "from_a"
+_PRIVATE_A = "private_a"
+
+def func_a():
+    return "func_a_result"
