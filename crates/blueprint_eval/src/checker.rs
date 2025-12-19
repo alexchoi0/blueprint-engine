@@ -142,7 +142,7 @@ impl Checker {
                         });
                     }
 
-                    scope.define(local_name.to_string());
+                    scope.define_frozen(local_name.to_string());
                 }
             }
 
@@ -321,7 +321,14 @@ impl Checker {
     fn define_target(&mut self, target: &starlark_syntax::syntax::ast::AstAssignTarget, scope: &mut CheckScope) {
         match &target.node {
             AssignTargetP::Identifier(ident) => {
-                scope.define(ident.node.ident.clone());
+                let name = &ident.node.ident;
+                if scope.is_frozen(name) {
+                    self.errors.push(CheckerError {
+                        message: format!("cannot reassign imported variable '{}'", name),
+                        location: self.get_location(&target.span),
+                    });
+                }
+                scope.define(name.clone());
             }
             AssignTargetP::Tuple(targets) => {
                 for t in targets {
@@ -346,6 +353,11 @@ impl Checker {
                 if !scope.is_defined(name) && !self.builtins.contains(name) {
                     self.errors.push(CheckerError {
                         message: format!("undefined variable '{}'", name),
+                        location: self.get_location(&target.span),
+                    });
+                } else if scope.is_frozen(name) {
+                    self.errors.push(CheckerError {
+                        message: format!("cannot reassign imported variable '{}'", name),
                         location: self.get_location(&target.span),
                     });
                 }
@@ -438,6 +450,7 @@ impl Default for Checker {
 
 struct CheckScope {
     defined: HashSet<String>,
+    frozen: HashSet<String>,
     parent: Option<Box<CheckScope>>,
 }
 
@@ -445,6 +458,7 @@ impl CheckScope {
     fn new() -> Self {
         Self {
             defined: HashSet::new(),
+            frozen: HashSet::new(),
             parent: None,
         }
     }
@@ -452,8 +466,10 @@ impl CheckScope {
     fn child(&self) -> Self {
         Self {
             defined: HashSet::new(),
+            frozen: HashSet::new(),
             parent: Some(Box::new(Self {
                 defined: self.defined.clone(),
+                frozen: self.frozen.clone(),
                 parent: self.parent.clone(),
             })),
         }
@@ -461,6 +477,11 @@ impl CheckScope {
 
     fn define(&mut self, name: String) {
         self.defined.insert(name);
+    }
+
+    fn define_frozen(&mut self, name: String) {
+        self.defined.insert(name.clone());
+        self.frozen.insert(name);
     }
 
     fn is_defined(&self, name: &str) -> bool {
@@ -472,12 +493,23 @@ impl CheckScope {
         }
         false
     }
+
+    fn is_frozen(&self, name: &str) -> bool {
+        if self.frozen.contains(name) {
+            return true;
+        }
+        if let Some(ref parent) = self.parent {
+            return parent.is_frozen(name);
+        }
+        false
+    }
 }
 
 impl Clone for CheckScope {
     fn clone(&self) -> Self {
         Self {
             defined: self.defined.clone(),
+            frozen: self.frozen.clone(),
             parent: self.parent.clone(),
         }
     }
