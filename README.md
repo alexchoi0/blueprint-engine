@@ -207,7 +207,7 @@ s.find("World")             # 7
 ### Control Flow
 ```python
 fail("Something went wrong")    # Exit with error
-assert(x > 0, "x must be positive")
+assert_(x > 0, "x must be positive")
 ```
 
 ## Module System
