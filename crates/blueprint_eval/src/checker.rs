@@ -121,6 +121,13 @@ impl Checker {
             StmtP::Load(load) => {
                 let module_path = &load.module.node;
 
+                if let Err(msg) = self.check_module_exists(module_path) {
+                    self.errors.push(CheckerError {
+                        message: msg,
+                        location: self.get_location(&stmt.span),
+                    });
+                }
+
                 for arg in &load.args {
                     let local_name = arg.local.node.ident.as_str();
                     let their_name = &arg.their.node;
@@ -373,6 +380,40 @@ impl Checker {
             ParameterP::Normal(_, _, Some(default)) => Some(default.as_ref()),
             _ => None,
         }
+    }
+
+    fn check_module_exists(&self, module_path: &str) -> Result<(), String> {
+        if module_path.starts_with("@bp/") {
+            return Ok(());
+        }
+
+        if module_path.starts_with('@') {
+            return Ok(());
+        }
+
+        if module_path.starts_with("./") || module_path.starts_with("../") {
+            let current_dir = self.current_file
+                .as_ref()
+                .and_then(|f| f.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_else(|| PathBuf::from("."));
+
+            let resolved = current_dir.join(module_path);
+            if !resolved.exists() {
+                return Err(format!("module '{}' not found", module_path));
+            }
+            return Ok(());
+        }
+
+        if let Some(ref current_file) = self.current_file {
+            if let Some(current_dir) = current_file.parent() {
+                let resolved = current_dir.join(module_path);
+                if resolved.exists() {
+                    return Ok(());
+                }
+            }
+        }
+
+        Err(format!("module '{}' not found", module_path))
     }
 
     fn get_location(&self, span: &starlark_syntax::codemap::Span) -> SourceLocation {
