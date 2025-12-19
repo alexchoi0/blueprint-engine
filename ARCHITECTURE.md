@@ -1,8 +1,8 @@
-# Blueprint3 Architecture
+# Blueprint Architecture
 
 ## Implicit Async Starlark Runtime
 
-Blueprint3 is a high-performance Starlark script executor with implicit async I/O.
+Blueprint is a high-performance Starlark script executor with implicit async I/O.
 Scripts use standard Starlark syntax—no async/await keywords—while the runtime
 automatically yields to Tokio at I/O boundaries, enabling thousands of concurrent scripts.
 
@@ -12,12 +12,12 @@ automatically yields to Tokio at I/O boundaries, enabling thousands of concurren
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              BLUEPRINT3                                      │
+│                              BLUEPRINT                                       │
 │                     Implicit Async Starlark Runtime                          │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   │
-│  │  script1.⭐  │    │  script2.⭐  │    │  script3.⭐  │    │  scriptN.⭐  │   │
+│  │  script1.bp │    │  script2.bp │    │  script3.bp │    │  scriptN.bp │   │
 │  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘    └──────┬──────┘   │
 │         │                  │                  │                  │          │
 │         ▼                  ▼                  ▼                  ▼          │
@@ -52,8 +52,7 @@ automatically yields to Tokio at I/O boundaries, enabling thousands of concurren
 │  │  │  File I/O    │  │  HTTP        │  │  Process     │                │   │
 │  │  │  read_file   │  │ http_request │  │  run         │                │   │
 │  │  │  write_file  │  │  download    │  │  shell       │                │   │
-│  │  │  glob        │  │              │  │  exec        │                │   │
-│  │  │  exists      │  │              │  │              │                │   │
+│  │  │  glob        │  │              │  │              │                │   │
 │  │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                │   │
 │  │         │                 │                 │                         │   │
 │  │         │    All async    │    under the    │    hood                 │   │
@@ -78,114 +77,10 @@ automatically yields to Tokio at I/O boundaries, enabling thousands of concurren
 
 ---
 
-## Execution Model: 1000 Scripts on 4 Cores
-
-```
-TIME ──────────────────────────────────────────────────────────────────────────►
-
-Core 1   ║ S1: eval ║ S1: read_file ║ S5: eval ║ S5: http_get ║ S9: eval  ║
-         ║   (cpu)  ║   (yields)    ║   (cpu)  ║   (yields)   ║   (cpu)   ║
-         ╠══════════╬═══════════════╬══════════╬══════════════╬═══════════╣
-
-Core 2   ║ S2: eval ║ S2: http_get  ║ S6: eval ║ S6: read_file║ S10: eval ║
-         ║   (cpu)  ║   (yields)    ║   (cpu)  ║   (yields)   ║   (cpu)   ║
-         ╠══════════╬═══════════════╬══════════╬══════════════╬═══════════╣
-
-Core 3   ║ S3: eval ║ S3: write_file║ S7: eval ║ S7: run()    ║ S11: eval ║
-         ║   (cpu)  ║   (yields)    ║   (cpu)  ║   (yields)   ║   (cpu)   ║
-         ╠══════════╬═══════════════╬══════════╬══════════════╬═══════════╣
-
-Core 4   ║ S4: eval ║ S4: http_post ║ S8: eval ║ S8: glob()   ║ S12: eval ║
-         ║   (cpu)  ║   (yields)    ║   (cpu)  ║   (yields)   ║   (cpu)   ║
-         ╚══════════╩═══════════════╩══════════╩══════════════╩═══════════╝
-
-                    ▲               ▲          ▲              ▲
-                    │               │          │              │
-              YIELD POINT     YIELD POINT   YIELD       YIELD POINT
-              (I/O starts)    (I/O done)    POINT       (I/O done)
-
-LEGEND:
-  S1-S1000 = Script tasks (lightweight, ~few KB each)
-  eval     = CPU-bound Starlark evaluation
-  yields   = Task yields to Tokio, another task runs
-  ════════ = Task boundaries
-```
-
-### How Yield Works
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    SCRIPT EXECUTION FLOW                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   User Script                    Under the Hood                  │
-│   ───────────                    ──────────────                  │
-│                                                                  │
-│   content = read_file("x.txt")   1. Evaluator calls native fn   │
-│                      │           2. Native fn returns Future     │
-│                      │           3. Evaluator awaits Future      │
-│                      │           4. Tokio sees .await            │
-│                      │           5. Task YIELDS ◄── other tasks  │
-│                      │              run while I/O pending        │
-│                      │           6. I/O completes                │
-│                      │           7. Task resumes                 │
-│                      ▼           8. Value returned to script     │
-│   print(content)                                                 │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Parallel Function
-
-For explicit parallelism within a single script:
-
-```python
-# Sequential (slow)
-a = http_request("GET", "https://api1.com/data")
-b = http_request("GET", "https://api2.com/data")
-c = http_request("GET", "https://api3.com/data")
-
-# Parallel (fast) - all three requests run concurrently
-results = parallel([
-    lambda: http_request("GET", "https://api1.com/data"),
-    lambda: http_request("GET", "https://api2.com/data"),
-    lambda: http_request("GET", "https://api3.com/data"),
-])
-a, b, c = results[0], results[1], results[2]
-```
-
-### Parallel Execution Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    parallel() EXECUTION                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   TIME ─────────────────────────────────────────────────►        │
-│                                                                  │
-│   Sequential:                                                    │
-│   ├── http_get(api1) ──────┤                                    │
-│                             ├── http_get(api2) ──────┤          │
-│                                                       ├── http_get(api3) ──────┤
-│   Total: ═══════════════════════════════════════════════════════ 3x time
-│                                                                  │
-│   Parallel:                                                      │
-│   ├── http_get(api1) ──────┤                                    │
-│   ├── http_get(api2) ──────┤  (concurrent)                      │
-│   ├── http_get(api3) ──────┤                                    │
-│   Total: ═══════════════════ 1x time                            │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
 ## Crate Structure
 
 ```
-blueprint3/
+blueprint/
 ├── Cargo.toml                 # Workspace
 ├── ARCHITECTURE.md            # This file
 │
@@ -198,35 +93,122 @@ blueprint3/
 │   │
 │   ├── blueprint_parser/      # Starlark parsing
 │   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── parse.rs       # Parse to AST
-│   │       └── ast.rs         # AST types (from starlark-rust)
+│   │       └── lib.rs         # Parse to AST (wraps starlark-rust)
 │   │
 │   ├── blueprint_eval/        # Async evaluator (THE CORE)
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── eval.rs        # Main async eval loop
 │   │       ├── scope.rs       # Variable scopes
-│   │       ├── natives/
-│   │       │   ├── mod.rs
-│   │       │   ├── file.rs    # read_file, write_file, glob, exists
-│   │       │   ├── http.rs    # http_request, download
-│   │       │   ├── process.rs # run, shell, exec
-│   │       │   ├── parallel.rs# parallel() function
-│   │       │   ├── console.rs # print, input
-│   │       │   └── time.rs    # sleep, now
-│   │       └── builtins.rs    # len, str, int, list, dict, etc.
+│   │       └── natives/
+│   │           ├── mod.rs
+│   │           ├── file.rs    # read_file, write_file, glob, exists
+│   │           ├── http.rs    # http_request, download
+│   │           ├── process.rs # run, shell, env
+│   │           ├── parallel.rs# parallel() function
+│   │           ├── console.rs # print, input
+│   │           ├── time.rs    # sleep, now
+│   │           ├── json.rs    # json_encode, json_decode
+│   │           ├── crypto.rs  # sha256, hmac_sha256
+│   │           ├── jwt.rs     # jwt_encode, jwt_decode
+│   │           ├── approval.rs# ask_for_approval
+│   │           ├── redact.rs  # redact_pii, redact_secrets
+│   │           ├── task.rs    # task() with timeout
+│   │           └── triggers.rs# http_server, cron, interval
 │   │
 │   └── blueprint_cli/         # CLI interface
 │       └── src/
 │           ├── main.rs
-│           └── args.rs        # CLI argument parsing
+│           ├── args.rs        # CLI argument parsing
+│           └── runner.rs      # Script execution
 │
-└── examples/
-    ├── hello.star
-    ├── http_fetch.star
-    └── parallel_downloads.star
+└── stdlib/                    # Standard library modules
+    ├── aws.bp                 # @bp/aws - S3 operations
+    ├── gcp.bp                 # @bp/gcp - GCS operations
+    └── llm.bp                 # @bp/llm - LLM/agent functions
 ```
+
+---
+
+## CLI Commands
+
+```bash
+# Run scripts
+bp run script.bp                    # Run a script
+bp run script.bp -- arg1 arg2       # With arguments
+bp run *.bp                         # Run multiple scripts
+bp run -j 10 *.bp                   # Limit concurrency
+bp run -e 'print("hello")'          # Inline code execution
+
+# REPL
+bp repl                             # Interactive REPL
+bp repl --port 8888                 # Start REPL server
+
+# Evaluate (connects to REPL server if --port specified)
+bp eval "1 + 2"                     # Evaluate expression
+bp eval "x = 10" --port 8888        # Eval against REPL server
+bp eval "exit" --port 8888          # Shutdown REPL server
+
+# Package management
+bp install @user/repo               # Install from GitHub (main branch)
+bp install @user/repo#v1.0          # Install specific version/tag
+bp uninstall @user/repo             # Uninstall package
+bp list                             # List installed packages
+
+# Other
+bp check script.bp                  # Syntax check only
+```
+
+---
+
+## Package Manager
+
+Packages are GitHub repositories that auto-install on first use:
+
+```starlark
+# Auto-installs @user/repo from GitHub if not present
+load("@user/repo", "func")
+
+# Specific version/tag
+load("@user/repo#v1.0", "func")
+
+# Built-in stdlib
+load("@bp/aws", "s3_upload", "s3_download")
+load("@bp/gcp", "gcs_upload", "gcs_download")
+load("@bp/llm", "agent")
+```
+
+Package location: `~/.blueprint/packages/@user/repo#version/`
+
+Entry point: `lib.bp` in repository root
+
+---
+
+## Triggers System
+
+Triggers allow scripts to run as daemons:
+
+```starlark
+# HTTP server
+server = http_server(8080, {
+    "GET /health": lambda req: {"status": "ok"},
+    "POST /webhook": handle_webhook,
+})
+
+# Cron job (standard cron syntax)
+job = cron("0 * * * *", lambda: print("every hour"))
+
+# Interval timer
+timer = interval(60, lambda: print("every 60 seconds"))
+
+# Control functions
+print(running(server))  # True/False
+print(triggers())       # List all active triggers
+stop(server)            # Stop specific trigger
+stop_all()              # Stop all triggers
+```
+
+Script stays alive while triggers are active, exits when all stopped.
 
 ---
 
@@ -236,101 +218,235 @@ blueprint3/
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `read_file` | `read_file(path: str) -> str` | Read file contents |
-| `write_file` | `write_file(path: str, content: str) -> None` | Write to file |
-| `append_file` | `append_file(path: str, content: str) -> None` | Append to file |
-| `exists` | `exists(path: str) -> bool` | Check if path exists |
-| `is_file` | `is_file(path: str) -> bool` | Check if path is file |
-| `is_dir` | `is_dir(path: str) -> bool` | Check if path is directory |
-| `glob` | `glob(pattern: str) -> list[str]` | Find files matching pattern |
-| `mkdir` | `mkdir(path: str) -> None` | Create directory |
-| `rm` | `rm(path: str) -> None` | Remove file or directory |
-| `cp` | `cp(src: str, dst: str) -> None` | Copy file |
-| `mv` | `mv(src: str, dst: str) -> None` | Move file |
+| `read_file` | `read_file(path) -> str` | Read file contents |
+| `write_file` | `write_file(path, content) -> None` | Write to file |
+| `append_file` | `append_file(path, content) -> None` | Append to file |
+| `exists` | `exists(path) -> bool` | Check if path exists |
+| `is_file` | `is_file(path) -> bool` | Check if path is file |
+| `is_dir` | `is_dir(path) -> bool` | Check if path is directory |
+| `glob` | `glob(pattern) -> list` | Find files matching pattern |
+| `mkdir` | `mkdir(path) -> None` | Create directory |
+| `rm` | `rm(path) -> None` | Remove file or directory |
+| `cp` | `cp(src, dst) -> None` | Copy file |
+| `mv` | `mv(src, dst) -> None` | Move file |
 
 ### HTTP Operations
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `http_request` | `http_request(method: str, url: str, body: str = None, headers: dict = {}) -> Response` | HTTP request (GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS) |
-| `download` | `download(url: str, path: str) -> None` | Download file |
+| `http_request` | `http_request(method, url, body=, headers=, timeout=) -> Response` | HTTP request |
+| `download` | `download(url, path) -> None` | Download file |
+
+Response object: `.status`, `.body`, `.headers`
 
 ### Process Operations
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `run` | `run(args: list[str]) -> Result` | Run command |
-| `shell` | `shell(cmd: str) -> Result` | Run shell command |
-| `exec` | `exec(args: list[str]) -> None` | Replace process |
-| `env` | `env(name: str, default: str = "") -> str` | Get env var |
-| `set_env` | `set_env(name: str, value: str) -> None` | Set env var |
+| `run` | `run(args) -> Result` | Run command (list or string) |
+| `shell` | `shell(cmd, cwd=, env=) -> Result` | Run shell command |
+| `env` | `env(name, default="") -> str` | Get env var |
+| `set_env` | `set_env(name, value) -> None` | Set env var |
+
+Result object: `.code`, `.stdout`, `.stderr`
 
 ### Concurrency
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `parallel` | `parallel(fns: list[fn]) -> list[any]` | Run functions in parallel |
-| `sleep` | `sleep(seconds: float) -> None` | Async sleep |
+| `parallel` | `parallel(fns) -> list` | Run functions in parallel |
+| `sleep` | `sleep(seconds) -> None` | Async sleep |
+| `task` | `task(fn, timeout=) -> any` | Run with timeout |
+
+### Triggers
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `http_server` | `http_server(port, routes, host=) -> handle` | Start HTTP server |
+| `cron` | `cron(schedule, handler) -> handle` | Cron job |
+| `interval` | `interval(seconds, handler) -> handle` | Interval timer |
+| `stop` | `stop(handle) -> None` | Stop trigger(s) |
+| `stop_all` | `stop_all() -> None` | Stop all triggers |
+| `running` | `running(handle) -> bool` | Check if running |
+| `triggers` | `triggers() -> list` | List active triggers |
+
+### JSON
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `json_encode` | `json_encode(value) -> str` | Encode to JSON |
+| `json_decode` | `json_decode(str) -> value` | Decode from JSON |
+
+### Crypto
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `sha256` | `sha256(data) -> str` | SHA-256 hash (hex) |
+| `hmac_sha256` | `hmac_sha256(key, data, key_hex=) -> str` | HMAC-SHA256 |
+
+### JWT
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `jwt_encode` | `jwt_encode(payload, secret, algorithm=) -> str` | Create JWT |
+| `jwt_decode` | `jwt_decode(token, secret, algorithm=) -> dict` | Decode/verify JWT |
 
 ### Console
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `print` | `print(*args) -> None` | Print to stdout |
+| `print` | `print(*args, sep=, end=) -> None` | Print to stdout |
 | `eprint` | `eprint(*args) -> None` | Print to stderr |
-| `input` | `input(prompt: str = "") -> str` | Read from stdin |
+| `input` | `input(prompt="") -> str` | Read from stdin |
 
 ### Time
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `now` | `now() -> float` | Current Unix timestamp |
-| `sleep` | `sleep(seconds: float) -> None` | Async sleep |
+| `sleep` | `sleep(seconds) -> None` | Async sleep |
 
-### Control Flow
+### Assertions
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `fail` | `fail(msg: str) -> Never` | Fail with error |
-| `assert` | `assert(cond: bool, msg: str = "") -> None` | Assert condition |
+| `fail` | `fail(msg) -> Never` | Fail with error |
+| `assert_true` | `assert_true(cond, msg=) -> None` | Assert condition |
+| `assert_eq` | `assert_eq(a, b, msg=) -> None` | Assert equality |
+| `assert_ne` | `assert_ne(a, b, msg=) -> None` | Assert inequality |
+| `assert_contains` | `assert_contains(haystack, needle, msg=) -> None` | Assert contains |
+
+### Security
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `redact_pii` | `redact_pii(text) -> str` | Redact PII |
+| `redact_secrets` | `redact_secrets(text) -> str` | Redact secrets |
+| `ask_for_approval` | `ask_for_approval(prompt) -> bool` | Interactive approval |
+
+---
+
+## Standard Library
+
+### @bp/aws
+
+```starlark
+load("@bp/aws", "s3_upload", "s3_download", "s3_list", "s3_delete")
+
+# Configure credentials
+creds = aws_auth(
+    access_key_id = env("AWS_ACCESS_KEY_ID"),
+    secret_access_key = env("AWS_SECRET_ACCESS_KEY"),
+    region = "us-east-1"
+)
+
+# S3 operations
+s3_upload(creds, "my-bucket", "key.txt", "content")
+content = s3_download(creds, "my-bucket", "key.txt")
+files = s3_list(creds, "my-bucket", prefix="logs/")
+s3_delete(creds, "my-bucket", "key.txt")
+```
+
+### @bp/gcp
+
+```starlark
+load("@bp/gcp", "gcs_upload", "gcs_download", "gcs_list", "gcs_delete")
+
+# Configure credentials (service account JSON)
+creds = gcp_auth(service_account_json = read_file("sa.json"))
+
+# GCS operations
+gcs_upload(creds, "my-bucket", "key.txt", "content")
+content = gcs_download(creds, "my-bucket", "key.txt")
+files = gcs_list(creds, "my-bucket", prefix="logs/")
+gcs_delete(creds, "my-bucket", "key.txt")
+```
+
+### @bp/llm
+
+```starlark
+load("@bp/llm", "agent")
+
+# Simple agent
+response = agent("What is 2 + 2?")
+
+# Agent with tools
+response = agent(
+    prompt = "Get the weather in NYC",
+    tools = [get_weather],
+    model = "claude-sonnet-4-20250514"
+)
+```
+
+---
+
+## Execution Model
+
+### Implicit Async
+
+Scripts look synchronous but run asynchronously:
+
+```starlark
+# This looks blocking but yields at I/O boundaries
+content = read_file("data.txt")    # yields while reading
+response = http_request("GET", url) # yields while fetching
+result = shell("make build")        # yields while running
+```
+
+### Parallel Execution
+
+```
+TIME ──────────────────────────────────────────────────────────────────────────►
+
+Core 1   ║ S1: eval ║ S1: read_file ║ S5: eval ║ S5: http_get ║ S9: eval  ║
+         ║   (cpu)  ║   (yields)    ║   (cpu)  ║   (yields)   ║   (cpu)   ║
+
+Core 2   ║ S2: eval ║ S2: http_get  ║ S6: eval ║ S6: read_file║ S10: eval ║
+         ║   (cpu)  ║   (yields)    ║   (cpu)  ║   (yields)   ║   (cpu)   ║
+
+Core 3   ║ S3: eval ║ S3: write_file║ S7: eval ║ S7: run()    ║ S11: eval ║
+         ║   (cpu)  ║   (yields)    ║   (cpu)  ║   (yields)   ║   (cpu)   ║
+
+Core 4   ║ S4: eval ║ S4: http_post ║ S8: eval ║ S8: glob()   ║ S12: eval ║
+         ║   (cpu)  ║   (yields)    ║   (cpu)  ║   (yields)   ║   (cpu)   ║
+```
+
+### Explicit Parallel
+
+```starlark
+# Sequential - 3x time
+a = http_request("GET", url1)
+b = http_request("GET", url2)
+c = http_request("GET", url3)
+
+# Parallel - 1x time
+results = parallel([
+    lambda: http_request("GET", url1),
+    lambda: http_request("GET", url2),
+    lambda: http_request("GET", url3),
+])
+```
 
 ---
 
 ## Example Scripts
 
-### hello.star
-```python
-print("Hello, Blueprint3!")
+### HTTP API Client
 
-name = input("What's your name? ")
-print("Nice to meet you,", name)
-```
-
-### file_ops.star
-```python
-content = read_file("input.txt")
-
-if "error" in content:
-    print("Found error in file!")
-    write_file("errors.log", content)
-else:
-    print("File looks good")
-```
-
-### http_fetch.star
-```python
+```starlark
 response = http_request("GET", "https://api.github.com/users/octocat")
 
 if response.status == 200:
-    data = json.decode(response.body)
+    data = json_decode(response.body)
     print("User:", data["login"])
     print("Repos:", data["public_repos"])
 else:
-    print("Error:", response.status)
+    fail("Error: " + str(response.status))
 ```
 
-### parallel_downloads.star
-```python
+### Parallel Downloads
+
+```starlark
 urls = [
     "https://example.com/file1.txt",
     "https://example.com/file2.txt",
@@ -344,85 +460,73 @@ results = parallel([lambda u=u: fetch(u) for u in urls])
 
 for i, content in enumerate(results):
     write_file("output_{}.txt".format(i), content)
-
-print("Downloaded", len(results), "files")
 ```
 
-### deploy.star
-```python
-config = read_file("config.json")
-settings = json.decode(config)
+### Webhook Server
 
-print("Deploying to", settings["environment"])
+```starlark
+def handle_webhook(req):
+    data = json_decode(req["body"])
+    print("Received:", data)
 
-result = run(["docker", "build", "-t", settings["image"], "."])
+    # Process webhook...
+    shell("./process.sh " + data["id"])
+
+    return {"status": "ok"}
+
+server = http_server(8080, {
+    "POST /webhook": handle_webhook,
+    "GET /health": lambda r: "healthy",
+})
+
+print("Listening on :8080")
+```
+
+### Cron Job
+
+```starlark
+def cleanup():
+    files = glob("/tmp/old-*")
+    for f in files:
+        rm(f)
+    print("Cleaned up", len(files), "files")
+
+job = cron("0 0 * * *", cleanup)  # Daily at midnight
+print("Cleanup job scheduled")
+```
+
+### CI/CD Script
+
+```starlark
+print("Building...")
+result = shell("cargo build --release")
 if result.code != 0:
-    fail("Docker build failed: " + result.stderr)
+    fail("Build failed: " + result.stderr)
 
-result = run(["docker", "push", settings["image"]])
+print("Testing...")
+result = shell("cargo test")
 if result.code != 0:
-    fail("Docker push failed: " + result.stderr)
+    fail("Tests failed: " + result.stderr)
 
-http_request("POST", settings["webhook_url"],
-    json.encode({"status": "deployed", "image": settings["image"]}),
+print("Deploying...")
+result = shell("docker push myapp:latest")
+if result.code != 0:
+    fail("Deploy failed: " + result.stderr)
+
+# Notify Slack
+http_request("POST", env("SLACK_WEBHOOK"),
+    json_encode({"text": "Deployed successfully!"}),
     headers={"Content-Type": "application/json"})
-
-print("Deployment complete!")
 ```
 
 ---
 
-## CLI Usage
+## Installation
 
 ```bash
-# Run a single script
-blueprint3 run script.star
+# From source
+cargo install --git https://github.com/alexchoi0/blueprint --bin bp
 
-# Run multiple scripts in parallel
-blueprint3 run *.star
-
-# Limit concurrency
-blueprint3 run -j 100 scripts/*.star
-
-# Pass arguments to script
-blueprint3 run script.star -- arg1 arg2
-
-# Verbose output
-blueprint3 run -v script.star
-
-# Dry run (parse only)
-blueprint3 check script.star
+# Verify
+bp --version
 ```
-
----
-
-## Implementation Phases
-
-### Phase 1: Core Infrastructure
-- [ ] Workspace setup
-- [ ] blueprint_core: Error types, Value enum
-- [ ] blueprint_parser: Wrap starlark-rust parser
-
-### Phase 2: Async Evaluator
-- [ ] blueprint_eval: Basic expression evaluation
-- [ ] Scope management
-- [ ] Control flow (if/else, for, while)
-- [ ] Function definitions and calls
-
-### Phase 3: Native Functions
-- [ ] File I/O (read_file, write_file, etc.)
-- [ ] HTTP client (http_request, download)
-- [ ] Process execution (run, shell)
-- [ ] parallel() function
-
-### Phase 4: CLI
-- [ ] Argument parsing
-- [ ] Script execution
-- [ ] Concurrent multi-script execution
-- [ ] Error reporting
-
-### Phase 5: Polish
-- [ ] Better error messages with source locations
-- [ ] REPL mode
-- [ ] Script caching
-- [ ] Performance optimization
