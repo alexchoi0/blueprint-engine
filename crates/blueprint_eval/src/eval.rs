@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use blueprint_core::{BlueprintError, NativeFunction, Result, Value};
+use blueprint_core::{BlueprintError, Generator, GeneratorMessage, NativeFunction, Result, Value};
 use blueprint_parser::{
-    AstExpr, AstParameter, AssignOp, AssignTargetP, Clause,
+    AstExpr, AstParameter, AstStmt, AssignOp, AssignTargetP, Clause,
     ExprP, ForClause, ParameterP, ParsedModule, StmtP,
 };
 use starlark_syntax::codemap::CodeMap;
 use starlark_syntax::syntax::ast::{AstLiteral, AstAssignTarget, ArgumentP, BinOp};
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 use crate::scope::{Scope, ScopeKind};
 
@@ -117,17 +117,60 @@ impl Evaluator {
 
             StmtP::For(for_stmt) => {
                 let iterable = self.eval_expr(&for_stmt.over, scope.clone()).await?;
-                let items = self.get_iterable(&iterable).await?;
 
-                for item in items {
-                    let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
-                    self.assign_target(&for_stmt.var, item, loop_scope.clone()).await?;
+                match &iterable {
+                    Value::Iterator(iter) => {
+                        loop {
+                            let item = iter.next().await;
+                            match item {
+                                Some(value) => {
+                                    let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
+                                    self.assign_target(&for_stmt.var, value, loop_scope.clone()).await?;
 
-                    match self.eval_stmt(&for_stmt.body, loop_scope).await {
-                        Err(BlueprintError::Break) => break,
-                        Err(BlueprintError::Continue) => continue,
-                        Err(e) => return Err(e),
-                        Ok(_) => {}
+                                    match self.eval_stmt(&for_stmt.body, loop_scope).await {
+                                        Err(BlueprintError::Break) => break,
+                                        Err(BlueprintError::Continue) => continue,
+                                        Err(e) => return Err(e),
+                                        Ok(_) => {}
+                                    }
+                                }
+                                None => break,
+                            }
+                        }
+                    }
+                    Value::Generator(gen) => {
+                        loop {
+                            let item = gen.next().await;
+                            match item {
+                                Some(value) => {
+                                    let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
+                                    self.assign_target(&for_stmt.var, value, loop_scope.clone()).await?;
+
+                                    match self.eval_stmt(&for_stmt.body, loop_scope).await {
+                                        Err(BlueprintError::Break) => break,
+                                        Err(BlueprintError::Continue) => continue,
+                                        Err(e) => return Err(e),
+                                        Ok(_) => {}
+                                    }
+                                }
+                                None => break,
+                            }
+                        }
+                    }
+                    _ => {
+                        let items = self.get_iterable(&iterable).await?;
+
+                        for item in items {
+                            let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
+                            self.assign_target(&for_stmt.var, item, loop_scope.clone()).await?;
+
+                            match self.eval_stmt(&for_stmt.body, loop_scope).await {
+                                Err(BlueprintError::Break) => break,
+                                Err(BlueprintError::Continue) => continue,
+                                Err(e) => return Err(e),
+                                Ok(_) => {}
+                            }
+                        }
                     }
                 }
                 Ok(Value::None)
@@ -445,6 +488,11 @@ impl Evaluator {
             }
 
             ExprP::Call(callee, args) => {
+                if let ExprP::Identifier(ident) = &callee.node {
+                    if ident.node.ident.as_str() == "emit" {
+                        return self.handle_emit(args, scope).await;
+                    }
+                }
                 let func = self.eval_expr(callee, scope.clone()).await?;
                 let (positional, kwargs) = self.eval_call_args(&args.args, scope.clone()).await?;
                 self.call_function(func, positional, kwargs, scope).await
@@ -462,7 +510,7 @@ impl Evaluator {
                 let target_val = self.eval_expr(target, scope.clone()).await?;
                 let start_val = self.eval_expr(start, scope.clone()).await?;
                 let end_val = self.eval_expr(end, scope).await?;
-                self.eval_slice(target_val, Some(start_val), Some(end_val))
+                self.eval_slice(target_val, Some(start_val), Some(end_val)).await
             }
 
             ExprP::Dot(target, attr) => {
@@ -581,7 +629,7 @@ impl Evaluator {
                     Some(s) => Some(self.eval_expr(s, scope).await?),
                     None => None,
                 };
-                self.eval_slice_with_step(arr_val, start_val, stop_val, step_val)
+                self.eval_slice_with_step(arr_val, start_val, stop_val, step_val).await
             }
 
             ExprP::FString(fstring) => {
@@ -1048,10 +1096,10 @@ impl Evaluator {
         }
     }
 
-    fn eval_slice(&self, target: Value, start: Option<Value>, end: Option<Value>) -> Result<Value> {
+    async fn eval_slice(&self, target: Value, start: Option<Value>, end: Option<Value>) -> Result<Value> {
         match &target {
             Value::List(l) => {
-                let items = l.blocking_read();
+                let items = l.read().await;
                 let len = items.len() as i64;
                 let (start_idx, end_idx) = self.normalize_slice_indices(start, end, len)?;
                 let slice: Vec<Value> = items[start_idx..end_idx].to_vec();
@@ -1120,7 +1168,7 @@ impl Evaluator {
         Ok((start_idx.min(end_idx), end_idx))
     }
 
-    fn eval_slice_with_step(
+    async fn eval_slice_with_step(
         &self,
         target: Value,
         start: Option<Value>,
@@ -1144,12 +1192,12 @@ impl Evaluator {
         };
 
         if step_val == 1 {
-            return self.eval_slice(target, start, end);
+            return self.eval_slice(target, start, end).await;
         }
 
         match &target {
             Value::List(l) => {
-                let items = l.blocking_read();
+                let items = l.read().await;
                 let len = items.len() as i64;
                 let (start_idx, end_idx) = self.get_step_indices(start, end, step_val, len)?;
                 let slice = self.collect_with_step(&items, start_idx, end_idx, step_val);
@@ -1434,23 +1482,67 @@ impl Evaluator {
         kwargs: HashMap<String, Value>,
         _parent_scope: Arc<Scope>,
     ) -> Result<Value> {
+        let body = func.body.downcast_ref::<AstStmt>().ok_or_else(|| {
+            BlueprintError::InternalError {
+                message: "Invalid function body".into(),
+            }
+        })?;
+
+        if Self::contains_yield(body) {
+            return self.create_generator(func, args, kwargs).await;
+        }
+
         let closure_scope = func.closure.as_ref().and_then(|c| c.downcast_ref::<Arc<Scope>>().cloned());
         let base_scope = closure_scope.unwrap_or_else(Scope::new_global);
         let call_scope = Scope::new_child(base_scope, ScopeKind::Function);
 
         self.bind_parameters(&func.params, args, kwargs, &call_scope).await?;
 
-        let body = func.body.downcast_ref::<blueprint_parser::AstStmt>().ok_or_else(|| {
-            BlueprintError::InternalError {
-                message: "Invalid function body".into(),
-            }
-        })?;
-
         match self.eval_stmt(body, call_scope).await {
             Ok(_) => Ok(Value::None),
             Err(BlueprintError::Return { value }) => Ok((*value).clone()),
             Err(e) => Err(e),
         }
+    }
+
+    async fn create_generator(
+        &self,
+        func: &blueprint_core::UserFunction,
+        args: Vec<Value>,
+        kwargs: HashMap<String, Value>,
+    ) -> Result<Value> {
+        let (tx, rx) = mpsc::channel::<GeneratorMessage>(1);
+
+        let closure_scope = func.closure.as_ref().and_then(|c| c.downcast_ref::<Arc<Scope>>().cloned());
+        let base_scope = closure_scope.unwrap_or_else(Scope::new_global);
+        let gen_scope = Scope::new_generator(base_scope, tx.clone());
+
+        self.bind_parameters(&func.params, args, kwargs, &gen_scope).await?;
+
+        let body = func.body.downcast_ref::<AstStmt>().ok_or_else(|| {
+            BlueprintError::InternalError {
+                message: "Invalid function body".into(),
+            }
+        })?.clone();
+
+        let func_name = func.name.clone();
+
+        let evaluator = Evaluator::new();
+
+        tokio::spawn(async move {
+            let result = evaluator.eval_stmt(&body, gen_scope).await;
+
+            match result {
+                Ok(_) | Err(BlueprintError::Return { .. }) => {
+                    let _ = tx.send(GeneratorMessage::Complete).await;
+                }
+                Err(_) => {
+                    let _ = tx.send(GeneratorMessage::Complete).await;
+                }
+            }
+        });
+
+        Ok(Value::Generator(Arc::new(Generator::new(rx, func_name))))
     }
 
     async fn call_lambda(
@@ -1826,6 +1918,116 @@ impl Evaluator {
         }
 
         Ok(())
+    }
+
+    async fn handle_emit(
+        &self,
+        args: &starlark_syntax::syntax::ast::CallArgsP<starlark_syntax::syntax::ast::AstNoPayload>,
+        scope: Arc<Scope>,
+    ) -> Result<Value> {
+        let yield_tx = scope.get_yield_tx().ok_or_else(|| BlueprintError::ArgumentError {
+            message: "emit() called outside of a generator function".into(),
+        })?;
+
+        let value = if args.args.is_empty() {
+            Value::None
+        } else {
+            let (positional, _) = self.eval_call_args(&args.args, scope).await?;
+            positional.into_iter().next().unwrap_or(Value::None)
+        };
+
+        let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();
+
+        yield_tx
+            .send(GeneratorMessage::Yielded(value, resume_tx))
+            .await
+            .map_err(|_| BlueprintError::InternalError {
+                message: "Generator receiver dropped".into(),
+            })?;
+
+        resume_rx.await.map_err(|_| BlueprintError::InternalError {
+            message: "Generator consumer stopped".into(),
+        })?;
+
+        Ok(Value::None)
+    }
+
+    fn contains_yield(stmt: &AstStmt) -> bool {
+        Self::stmt_contains_yield(&stmt.node)
+    }
+
+    fn stmt_contains_yield(stmt: &StmtP<starlark_syntax::syntax::ast::AstNoPayload>) -> bool {
+        match stmt {
+            StmtP::Statements(stmts) => stmts.iter().any(|s| Self::contains_yield(s)),
+            StmtP::If(_, body) => Self::contains_yield(body),
+            StmtP::IfElse(_, bodies) => {
+                Self::contains_yield(&bodies.0) || Self::contains_yield(&bodies.1)
+            }
+            StmtP::For(for_stmt) => Self::contains_yield(&for_stmt.body),
+            StmtP::Expression(expr) => Self::expr_contains_yield(expr),
+            StmtP::Assign(assign) => Self::expr_contains_yield(&assign.rhs),
+            StmtP::AssignModify(_, _, expr) => Self::expr_contains_yield(expr),
+            StmtP::Return(Some(expr)) => Self::expr_contains_yield(expr),
+            StmtP::Def(def) => Self::contains_yield(&def.body),
+            _ => false,
+        }
+    }
+
+    fn expr_contains_yield(expr: &AstExpr) -> bool {
+        match &expr.node {
+            ExprP::Call(callee, args) => {
+                if let ExprP::Identifier(ident) = &callee.node {
+                    if ident.node.ident.as_str() == "emit" {
+                        return true;
+                    }
+                }
+                Self::expr_contains_yield(callee)
+                    || args.args.iter().any(|arg| {
+                        Self::expr_contains_yield(match &arg.node {
+                            ArgumentP::Positional(e) => e,
+                            ArgumentP::Named(_, e) => e,
+                            ArgumentP::Args(e) => e,
+                            ArgumentP::KwArgs(e) => e,
+                        })
+                    })
+            }
+            ExprP::Tuple(items) | ExprP::List(items) => {
+                items.iter().any(|i| Self::expr_contains_yield(i))
+            }
+            ExprP::Dict(pairs) => pairs
+                .iter()
+                .any(|(k, v)| Self::expr_contains_yield(k) || Self::expr_contains_yield(v)),
+            ExprP::If(cond_else) => {
+                let (cond, then_expr, else_expr) = cond_else.as_ref();
+                Self::expr_contains_yield(cond)
+                    || Self::expr_contains_yield(then_expr)
+                    || Self::expr_contains_yield(else_expr)
+            }
+            ExprP::Op(lhs, _, rhs) => Self::expr_contains_yield(lhs) || Self::expr_contains_yield(rhs),
+            ExprP::Not(e) | ExprP::Minus(e) | ExprP::Plus(e) => Self::expr_contains_yield(e),
+            ExprP::Index(pair) => {
+                Self::expr_contains_yield(&pair.0) || Self::expr_contains_yield(&pair.1)
+            }
+            ExprP::Dot(e, _) => Self::expr_contains_yield(e),
+            ExprP::ListComprehension(body, first, clauses) => {
+                Self::expr_contains_yield(body) || Self::for_clause_contains_yield(first, clauses)
+            }
+            ExprP::DictComprehension(kv, first, clauses) => {
+                Self::expr_contains_yield(&kv.0)
+                    || Self::expr_contains_yield(&kv.1)
+                    || Self::for_clause_contains_yield(first, clauses)
+            }
+            ExprP::Lambda(lambda) => Self::expr_contains_yield(&lambda.body),
+            _ => false,
+        }
+    }
+
+    fn for_clause_contains_yield(first: &ForClause, clauses: &[Clause]) -> bool {
+        Self::expr_contains_yield(&first.over)
+            || clauses.iter().any(|c| match c {
+                Clause::For(f) => Self::expr_contains_yield(&f.over),
+                Clause::If(e) => Self::expr_contains_yield(e),
+            })
     }
 
     fn register_builtins(&mut self) {

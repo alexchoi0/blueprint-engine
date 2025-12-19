@@ -7,6 +7,7 @@ Blueprint lets you write simple, synchronous-looking scripts while the runtime a
 ## Features
 
 - **Implicit Async I/O** - Write sync code, get async performance
+- **Generators** - Lazy iteration with `emit()` for memory-efficient streaming
 - **Triggers** - HTTP servers, cron jobs, and interval timers for daemon mode
 - **Package Manager** - Auto-install packages from GitHub with `load("@user/repo", ...)`
 - **REPL Server** - Persistent eval sessions for integration with other tools
@@ -141,6 +142,17 @@ for i, content in enumerate(results):
     write_file("output_{}.txt".format(i), content)
 ```
 
+### Generator Functions
+
+```starlark
+def squares(n):
+    for i in range(n):
+        emit(i * i)
+
+for sq in squares(10):
+    print(sq)  # Prints 0, 1, 4, 9, 16, ...
+```
+
 ### CI/CD Script
 
 ```starlark
@@ -272,6 +284,10 @@ resp = http_request("POST", url, body='{"key": "value"}',
                     headers={"Content-Type": "application/json"})
 
 download("https://example.com/file.zip", "local/file.zip")
+
+# Streaming large responses
+for chunk in http_request("GET", "https://example.com/large-file", stream=True):
+    process(chunk)
 ```
 
 ### JSON
@@ -385,8 +401,16 @@ content = gcs_download(creds, "bucket", "key.txt")
 ```starlark
 load("@bp/llm", "agent")
 
+# Non-streaming
 response = agent("What is 2 + 2?")
 response = agent(prompt="Get weather", tools=[get_weather], model="claude-sonnet-4-20250514")
+
+# Streaming - iterate over tokens as they arrive
+stream = agent("Write a poem about Rust", stream=True)
+for chunk in stream:
+    print(chunk, end="")
+print()
+print("Full response:", stream.content)
 ```
 
 ## Script Globals

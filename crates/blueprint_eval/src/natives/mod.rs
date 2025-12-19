@@ -3,6 +3,7 @@ mod builtins;
 mod console;
 mod crypto;
 mod file;
+mod generator;
 mod http;
 mod json;
 mod jwt;
@@ -12,6 +13,7 @@ mod redact;
 mod task;
 mod time;
 pub mod triggers;
+mod websocket;
 
 use crate::eval::Evaluator;
 
@@ -21,6 +23,7 @@ pub fn register_all(evaluator: &mut Evaluator) {
     console::register(evaluator);
     crypto::register(evaluator);
     file::register(evaluator);
+    generator::register(evaluator);
     http::register(evaluator);
     json::register(evaluator);
     jwt::register(evaluator);
@@ -30,4 +33,5 @@ pub fn register_all(evaluator: &mut Evaluator) {
     task::register(evaluator);
     time::register(evaluator);
     triggers::register(evaluator);
+    websocket::register(evaluator);
 }

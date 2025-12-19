@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use blueprint_core::{BlueprintError, HttpResponse, NativeFunction, Result, Value};
+use blueprint_core::{BlueprintError, HttpResponse, NativeFunction, Result, StreamIterator, Value};
+use futures_util::StreamExt;
 use reqwest::Client;
+use tokio::sync::mpsc;
 
 use crate::eval::Evaluator;
 
@@ -54,7 +56,110 @@ async fn http_request(args: Vec<Value>, kwargs: HashMap<String, Value>) -> Resul
         .and_then(|v| v.as_float().ok())
         .unwrap_or(30.0);
 
-    make_request(&method, &url, body, headers, timeout).await
+    let stream = kwargs
+        .get("stream")
+        .map(|v| v.is_truthy())
+        .unwrap_or(false);
+
+    if stream {
+        let chunk_size = kwargs
+            .get("chunk_size")
+            .and_then(|v| v.as_int().ok())
+            .map(|n| n as usize);
+
+        let (tx, rx) = mpsc::channel::<Option<String>>(32);
+        let iterator = Arc::new(StreamIterator::new(rx));
+
+        let url_clone = url.clone();
+        tokio::spawn(async move {
+            if let Err(e) = stream_request(&method, &url_clone, body, headers, tx.clone(), chunk_size).await {
+                eprintln!("HTTP stream error: {}", e);
+            }
+            tx.send(None).await.ok();
+        });
+
+        Ok(Value::Iterator(iterator))
+    } else {
+        make_request(&method, &url, body, headers, timeout).await
+    }
+}
+
+async fn stream_request(
+    method: &str,
+    url: &str,
+    body: Option<String>,
+    headers: HashMap<String, String>,
+    tx: mpsc::Sender<Option<String>>,
+    chunk_size: Option<usize>,
+) -> Result<()> {
+    let client = Client::new();
+
+    let mut request = match method {
+        "GET" => client.get(url),
+        "POST" => client.post(url),
+        "PUT" => client.put(url),
+        "DELETE" => client.delete(url),
+        "PATCH" => client.patch(url),
+        "HEAD" => client.head(url),
+        "OPTIONS" => client.request(reqwest::Method::OPTIONS, url),
+        _ => {
+            return Err(BlueprintError::ArgumentError {
+                message: format!("Unknown HTTP method: {}", method),
+            })
+        }
+    };
+
+    for (key, value) in headers {
+        request = request.header(&key, &value);
+    }
+
+    if let Some(b) = body {
+        request = request.body(b);
+    }
+
+    let response = request.send().await.map_err(|e| BlueprintError::HttpError {
+        url: url.into(),
+        message: e.to_string(),
+    })?;
+
+    if !response.status().is_success() {
+        return Err(BlueprintError::HttpError {
+            url: url.into(),
+            message: format!("HTTP {}", response.status().as_u16()),
+        });
+    }
+
+    let mut stream = response.bytes_stream();
+    let target_chunk_size = chunk_size.unwrap_or(8192);
+    let mut buffer = Vec::new();
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| BlueprintError::HttpError {
+            url: url.into(),
+            message: e.to_string(),
+        })?;
+
+        buffer.extend_from_slice(&chunk);
+
+        while buffer.len() >= target_chunk_size {
+            let data: Vec<u8> = buffer.drain(..target_chunk_size).collect();
+            if let Ok(s) = String::from_utf8(data.clone()) {
+                tx.send(Some(s)).await.ok();
+            } else {
+                tx.send(Some(String::from_utf8_lossy(&data).to_string())).await.ok();
+            }
+        }
+    }
+
+    if !buffer.is_empty() {
+        if let Ok(s) = String::from_utf8(buffer.clone()) {
+            tx.send(Some(s)).await.ok();
+        } else {
+            tx.send(Some(String::from_utf8_lossy(&buffer).to_string())).await.ok();
+        }
+    }
+
+    Ok(())
 }
 
 async fn download(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> {

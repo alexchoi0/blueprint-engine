@@ -4,7 +4,8 @@ use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 
 use crate::error::{BlueprintError, Result};
 
@@ -26,6 +27,8 @@ pub enum Value {
     NativeFunction(Arc<NativeFunction>),
     Response(Arc<HttpResponse>),
     ProcessResult(Arc<ProcessResult>),
+    Iterator(Arc<StreamIterator>),
+    Generator(Arc<Generator>),
 }
 
 impl fmt::Debug for Value {
@@ -44,6 +47,8 @@ impl fmt::Debug for Value {
             Value::NativeFunction(func) => write!(f, "NativeFunction({})", func.name),
             Value::Response(r) => write!(f, "Response(status={})", r.status),
             Value::ProcessResult(r) => write!(f, "ProcessResult(code={})", r.code),
+            Value::Iterator(_) => write!(f, "Iterator"),
+            Value::Generator(_) => write!(f, "Generator"),
         }
     }
 }
@@ -64,6 +69,8 @@ impl Value {
             Value::NativeFunction(_) => "builtin_function",
             Value::Response(_) => "Response",
             Value::ProcessResult(_) => "Result",
+            Value::Iterator(_) => "iterator",
+            Value::Generator(_) => "generator",
         }
     }
 
@@ -189,6 +196,8 @@ impl Value {
             Value::NativeFunction(f) => format!("<builtin_function {}>", f.name),
             Value::Response(r) => format!("<Response status={}>", r.status),
             Value::ProcessResult(r) => format!("<Result code={}>", r.code),
+            Value::Iterator(_) => "<iterator>".into(),
+            Value::Generator(_) => "<generator>".into(),
         }
     }
 
@@ -206,6 +215,7 @@ impl Value {
             Value::String(s) => get_string_method(s.clone(), name),
             Value::List(l) => get_list_method(l.clone(), name),
             Value::Dict(d) => get_dict_method(d.clone(), name),
+            Value::Iterator(it) => it.get_attr(name),
             _ => None,
         }
     }
@@ -556,11 +566,204 @@ fn get_list_method(_l: Arc<RwLock<Vec<Value>>>, name: &str) -> Option<Value> {
     }
 }
 
-fn get_dict_method(_d: Arc<RwLock<HashMap<String, Value>>>, name: &str) -> Option<Value> {
+fn get_dict_method(d: Arc<RwLock<HashMap<String, Value>>>, name: &str) -> Option<Value> {
     match name {
-        "keys" | "values" | "items" | "get" | "pop" | "update" | "clear" | "setdefault" => {
-            None
+        "get" => {
+            let d_clone = d.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "get",
+                move |args, _kwargs| {
+                    let d = d_clone.clone();
+                    Box::pin(async move {
+                        if args.is_empty() || args.len() > 2 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("get() takes 1 or 2 arguments ({} given)", args.len()),
+                            });
+                        }
+                        let key = match &args[0] {
+                            Value::String(s) => s.as_ref().clone(),
+                            v => return Err(BlueprintError::TypeError {
+                                expected: "string".into(),
+                                actual: v.type_name().into(),
+                            }),
+                        };
+                        let default = if args.len() == 2 {
+                            args[1].clone()
+                        } else {
+                            Value::None
+                        };
+                        let map = d.read().await;
+                        Ok(map.get(&key).cloned().unwrap_or(default))
+                    })
+                },
+            ))))
+        }
+        "keys" => {
+            let d_clone = d.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "keys",
+                move |_args, _kwargs| {
+                    let d = d_clone.clone();
+                    Box::pin(async move {
+                        let map = d.read().await;
+                        let keys: Vec<Value> = map.keys().map(|k| Value::String(Arc::new(k.clone()))).collect();
+                        Ok(Value::List(Arc::new(RwLock::new(keys))))
+                    })
+                },
+            ))))
+        }
+        "values" => {
+            let d_clone = d.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "values",
+                move |_args, _kwargs| {
+                    let d = d_clone.clone();
+                    Box::pin(async move {
+                        let map = d.read().await;
+                        let values: Vec<Value> = map.values().cloned().collect();
+                        Ok(Value::List(Arc::new(RwLock::new(values))))
+                    })
+                },
+            ))))
+        }
+        "items" => {
+            let d_clone = d.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "items",
+                move |_args, _kwargs| {
+                    let d = d_clone.clone();
+                    Box::pin(async move {
+                        let map = d.read().await;
+                        let items: Vec<Value> = map.iter()
+                            .map(|(k, v)| Value::Tuple(Arc::new(vec![Value::String(Arc::new(k.clone())), v.clone()])))
+                            .collect();
+                        Ok(Value::List(Arc::new(RwLock::new(items))))
+                    })
+                },
+            ))))
         }
         _ => None,
+    }
+}
+
+pub struct StreamIterator {
+    rx: Mutex<mpsc::Receiver<Option<String>>>,
+    content: Mutex<String>,
+    done: Mutex<bool>,
+    result: Mutex<Option<HashMap<String, Value>>>,
+}
+
+impl StreamIterator {
+    pub fn new(rx: mpsc::Receiver<Option<String>>) -> Self {
+        Self {
+            rx: Mutex::new(rx),
+            content: Mutex::new(String::new()),
+            done: Mutex::new(false),
+            result: Mutex::new(None),
+        }
+    }
+
+    pub async fn next(&self) -> Option<Value> {
+        let mut done = self.done.lock().await;
+        if *done {
+            return None;
+        }
+
+        let mut rx = self.rx.lock().await;
+        match rx.recv().await {
+            Some(Some(chunk)) => {
+                let mut content = self.content.lock().await;
+                content.push_str(&chunk);
+                Some(Value::String(Arc::new(chunk)))
+            }
+            Some(None) | None => {
+                *done = true;
+                None
+            }
+        }
+    }
+
+    pub async fn set_result(&self, result: HashMap<String, Value>) {
+        let mut r = self.result.lock().await;
+        *r = Some(result);
+    }
+
+    pub fn get_attr(&self, name: &str) -> Option<Value> {
+        match name {
+            "content" => {
+                let content = self.content.try_lock().ok()?;
+                Some(Value::String(Arc::new(content.clone())))
+            }
+            "done" => {
+                let done = self.done.try_lock().ok()?;
+                Some(Value::Bool(*done))
+            }
+            "result" => {
+                let result = self.result.try_lock().ok()?;
+                match result.as_ref() {
+                    Some(map) => Some(Value::Dict(Arc::new(RwLock::new(map.clone())))),
+                    None => Some(Value::None),
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Message sent from generator to consumer
+pub enum GeneratorMessage {
+    /// Generator yielded a value, waiting for resume signal
+    Yielded(Value, oneshot::Sender<()>),
+    /// Generator completed (returned or finished)
+    Complete,
+}
+
+/// A generator that yields values lazily
+pub struct Generator {
+    /// Receives yielded values from the generator task
+    rx: Mutex<mpsc::Receiver<GeneratorMessage>>,
+    /// Whether the generator has completed
+    done: AtomicBool,
+    /// The function that creates this generator (for display)
+    pub name: String,
+}
+
+impl Generator {
+    pub fn new(rx: mpsc::Receiver<GeneratorMessage>, name: String) -> Self {
+        Self {
+            rx: Mutex::new(rx),
+            done: AtomicBool::new(false),
+            name,
+        }
+    }
+
+    /// Get the next yielded value, or None if generator is exhausted
+    pub async fn next(&self) -> Option<Value> {
+        if self.done.load(Ordering::SeqCst) {
+            return None;
+        }
+
+        let mut rx = self.rx.lock().await;
+        match rx.recv().await {
+            Some(GeneratorMessage::Yielded(value, resume_tx)) => {
+                // Signal the generator to continue after yield
+                let _ = resume_tx.send(());
+                Some(value)
+            }
+            Some(GeneratorMessage::Complete) | None => {
+                self.done.store(true, Ordering::SeqCst);
+                None
+            }
+        }
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done.load(Ordering::SeqCst)
+    }
+}
+
+impl fmt::Debug for Generator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<generator {}>", self.name)
     }
 }

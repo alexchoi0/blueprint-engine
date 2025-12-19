@@ -1,4 +1,4 @@
-def agent(prompt, system=None, model="gpt-4o", temperature=0.7, api_key=None, base_url=None, tools=None, tool_handlers=None, max_iterations=10):
+def agent(prompt, system=None, model="gpt-4o", temperature=0.7, api_key=None, base_url=None, tools=None, tool_handlers=None, max_iterations=10, stream=False):
     """
     Call an LLM with optional tool/function calling support.
 
@@ -12,15 +12,112 @@ def agent(prompt, system=None, model="gpt-4o", temperature=0.7, api_key=None, ba
         tools: List of tool definitions for function calling
         tool_handlers: Dict mapping tool names to handler functions
         max_iterations: Max agentic loop iterations (default: 10)
+        stream: If True, return a generator that yields tokens (default: False)
 
     Returns:
-        Dict with "content", "model", "tokens", and optionally "tool_calls"
+        If stream=False: Dict with "content", "model", "tokens", and optionally "tool_calls"
+        If stream=True: Generator that yields string chunks.
+
+    Examples:
+        # Non-streaming
+        response = agent("What is 2 + 2?")
+        print(response["content"])
+
+        # Streaming
+        for chunk in agent("Write a poem", stream=True):
+            print(chunk, end="")
+        print()
     """
+    if stream:
+        if model.startswith("claude") and base_url == None:
+            return _stream_anthropic(prompt, system, model, temperature, api_key)
+        else:
+            url = base_url if base_url else "https://api.openai.com/v1"
+            return _stream_openai(prompt, system, model, temperature, api_key, url)
+
     if model.startswith("claude") and base_url == None:
         return _call_anthropic(prompt, system, model, temperature, api_key, tools, tool_handlers, max_iterations)
     else:
         url = base_url if base_url else "https://api.openai.com/v1"
         return _call_openai(prompt, system, model, temperature, api_key, url, tools, tool_handlers, max_iterations)
+
+
+def _stream_openai(prompt, system, model, temperature, api_key, base_url):
+    key = api_key if api_key else env("OPENAI_API_KEY")
+    endpoint = _strip_trailing_slash(base_url) + "/chat/completions"
+
+    messages = []
+    if system:
+        messages = messages + [{"role": "system", "content": system}]
+    messages = messages + [{"role": "user", "content": prompt}]
+
+    body = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": True
+    }
+
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = "Bearer " + key
+
+    partial = ""
+    for chunk in http_request("POST", endpoint, headers=headers, body=json_encode(body), stream=True):
+        lines = (partial + chunk).split("\n")
+        partial = lines[-1]
+
+        for line in lines[:-1]:
+            line = line.strip()
+            if line == "" or line == "data: [DONE]":
+                pass
+            elif line.startswith("data: "):
+                data = json_decode(line[6:])
+                if "choices" in data and len(data["choices"]) > 0:
+                    delta = data["choices"][0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        emit(content)
+
+
+def _stream_anthropic(prompt, system, model, temperature, api_key):
+    key = api_key if api_key else env("ANTHROPIC_API_KEY")
+    endpoint = "https://api.anthropic.com/v1/messages"
+
+    messages = [{"role": "user", "content": prompt}]
+
+    body = {
+        "model": model,
+        "max_tokens": 4096,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": True
+    }
+    if system:
+        body["system"] = system
+
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01"
+    }
+
+    partial = ""
+    for chunk in http_request("POST", endpoint, headers=headers, body=json_encode(body), stream=True):
+        lines = (partial + chunk).split("\n")
+        partial = lines[-1]
+
+        for line in lines[:-1]:
+            line = line.strip()
+            if line == "":
+                pass
+            elif line.startswith("data: "):
+                data = json_decode(line[6:])
+                if data.get("type") == "content_block_delta":
+                    delta = data.get("delta", {})
+                    text = delta.get("text", "")
+                    if text:
+                        emit(text)
 
 
 def _strip_trailing_slash(s):

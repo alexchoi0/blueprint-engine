@@ -8,6 +8,9 @@ use tokio::sync::RwLock;
 use crate::eval::Evaluator;
 
 pub fn register(evaluator: &mut Evaluator) {
+    evaluator.register_native(NativeFunction::new("json_encode", json_encode));
+    evaluator.register_native(NativeFunction::new("json_decode", json_decode));
+
     evaluator.register_module_native("json", NativeFunction::new("encode", json_encode));
     evaluator.register_module_native("json", NativeFunction::new("decode", json_decode));
     evaluator.register_module_native("json", NativeFunction::new("dumps", json_encode));

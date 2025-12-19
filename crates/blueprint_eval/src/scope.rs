@@ -1,12 +1,13 @@
-use blueprint_core::Value;
+use blueprint_core::{GeneratorMessage, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ScopeKind {
     Global,
     Function,
+    Generator,
     Loop,
     Block,
 }
@@ -15,6 +16,7 @@ pub struct Scope {
     variables: RwLock<HashMap<String, Value>>,
     parent: Option<Arc<Scope>>,
     kind: ScopeKind,
+    yield_tx: Option<mpsc::Sender<GeneratorMessage>>,
 }
 
 impl std::fmt::Debug for Scope {
@@ -32,6 +34,7 @@ impl Scope {
             variables: RwLock::new(HashMap::new()),
             parent: None,
             kind: ScopeKind::Global,
+            yield_tx: None,
         })
     }
 
@@ -40,7 +43,27 @@ impl Scope {
             variables: RwLock::new(HashMap::new()),
             parent: Some(parent),
             kind,
+            yield_tx: None,
         })
+    }
+
+    pub fn new_generator(parent: Arc<Scope>, yield_tx: mpsc::Sender<GeneratorMessage>) -> Arc<Self> {
+        Arc::new(Self {
+            variables: RwLock::new(HashMap::new()),
+            parent: Some(parent),
+            kind: ScopeKind::Generator,
+            yield_tx: Some(yield_tx),
+        })
+    }
+
+    pub fn get_yield_tx(&self) -> Option<mpsc::Sender<GeneratorMessage>> {
+        if let Some(ref tx) = self.yield_tx {
+            return Some(tx.clone());
+        }
+        if let Some(ref parent) = self.parent {
+            return parent.get_yield_tx();
+        }
+        None
     }
 
     #[async_recursion::async_recursion]
@@ -70,7 +93,7 @@ impl Scope {
 
     pub async fn set(&self, name: &str, value: Value) {
         match self.kind {
-            ScopeKind::Function | ScopeKind::Global => {
+            ScopeKind::Function | ScopeKind::Global | ScopeKind::Generator => {
                 self.variables.write().await.insert(name.to_string(), value);
             }
             ScopeKind::Loop | ScopeKind::Block => {

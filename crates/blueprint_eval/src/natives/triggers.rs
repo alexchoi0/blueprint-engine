@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::eval::Evaluator;
 
 lazy_static::lazy_static! {
-    static ref TRIGGER_REGISTRY: Arc<RwLock<TriggerRegistry>> = Arc::new(RwLock::new(TriggerRegistry::new()));
+    pub static ref TRIGGER_REGISTRY: Arc<RwLock<TriggerRegistry>> = Arc::new(RwLock::new(TriggerRegistry::new()));
 }
 
 pub struct TriggerRegistry {
