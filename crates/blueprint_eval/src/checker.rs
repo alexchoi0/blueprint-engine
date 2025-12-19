@@ -340,8 +340,12 @@ impl Checker {
                 self.check_expr(target_expr, scope);
                 self.check_expr(index_expr, scope);
             }
-            AssignTargetP::Dot(target_expr, _attr) => {
+            AssignTargetP::Dot(target_expr, attr) => {
                 self.check_expr(target_expr, scope);
+                self.errors.push(CheckerError {
+                    message: format!("cannot assign to field '.{}': structs are immutable", attr.node),
+                    location: self.get_location(&target.span),
+                });
             }
         }
     }
@@ -367,8 +371,12 @@ impl Checker {
                 self.check_expr(target_expr, scope);
                 self.check_expr(index_expr, scope);
             }
-            AssignTargetP::Dot(target_expr, _attr) => {
+            AssignTargetP::Dot(target_expr, attr) => {
                 self.check_expr(target_expr, scope);
+                self.errors.push(CheckerError {
+                    message: format!("cannot assign to field '.{}': structs are immutable", attr.node),
+                    location: self.get_location(&target.span),
+                });
             }
             AssignTargetP::Tuple(targets) => {
                 for t in targets {
