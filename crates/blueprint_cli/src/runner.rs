@@ -250,6 +250,18 @@ async fn eval_local(expression: &str) -> Result<()> {
 }
 
 async fn eval_remote(code: &str, port: u16) -> Result<()> {
+    let trimmed = code.trim();
+    if trimmed == "exit" || trimmed == "quit" || trimmed == "shutdown" {
+        let client = reqwest::Client::new();
+        client
+            .post(format!("http://127.0.0.1:{}/shutdown", port))
+            .send()
+            .await
+            .ok();
+        println!("REPL server shutdown");
+        return Ok(());
+    }
+
     #[derive(serde::Deserialize)]
     struct EvalResponse {
         success: bool,
