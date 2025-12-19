@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use blueprint_core::{BlueprintError, Generator, GeneratorMessage, NativeFunction, Result, Value};
+use blueprint_core::{BlueprintError, Generator, GeneratorMessage, NativeFunction, Result, SourceLocation, StackFrame, Value};
 use blueprint_parser::{
     AstExpr, AstParameter, AstStmt, AssignOp, AssignTargetP, Clause,
     ExprP, ForClause, ParameterP, ParsedModule, StmtP,
@@ -556,7 +556,16 @@ impl Evaluator {
                 let (target, index) = pair.as_ref();
                 let target_val = self.eval_expr(target, scope.clone()).await?;
                 let index_val = self.eval_expr(index, scope).await?;
-                self.eval_index(target_val, index_val).await
+                self.eval_index(target_val, index_val).await.map_err(|e| {
+                    let (line, column) = self.get_span_location(&expr.span);
+                    let file = self.current_file.as_ref().map(|p| p.to_string_lossy().to_string());
+                    e.with_location(SourceLocation {
+                        file,
+                        line,
+                        column,
+                        span: None,
+                    })
+                })
             }
 
             ExprP::Index2(triple) => {
@@ -640,7 +649,16 @@ impl Evaluator {
                 }
 
                 let right = self.eval_expr(rhs, scope).await?;
-                self.eval_binary_op(left, *op, right).await
+                self.eval_binary_op(left, *op, right).await.map_err(|e| {
+                    let (line, column) = self.get_span_location(&expr.span);
+                    let file = self.current_file.as_ref().map(|p| p.to_string_lossy().to_string());
+                    e.with_location(SourceLocation {
+                        file,
+                        line,
+                        column,
+                        span: None,
+                    })
+                })
             }
 
             ExprP::If(triple) => {
@@ -1556,10 +1574,19 @@ impl Evaluator {
 
         self.bind_parameters(&func.params, args, kwargs, &call_scope).await?;
 
+        let func_name = func.name.clone();
+        let file = self.current_file.as_ref().map(|p| p.display().to_string());
+        let (line, column) = self.get_span_location(&body.span);
+
         match self.eval_stmt(body, call_scope).await {
             Ok(_) => Ok(Value::None),
             Err(BlueprintError::Return { value }) => Ok((*value).clone()),
-            Err(e) => Err(e),
+            Err(e) => Err(e.with_stack_frame(StackFrame {
+                function_name: func_name,
+                file,
+                line,
+                column,
+            })),
         }
     }
 
@@ -1622,7 +1649,17 @@ impl Evaluator {
             }
         })?;
 
-        self.eval_expr(body, call_scope).await
+        let file = self.current_file.as_ref().map(|p| p.display().to_string());
+        let (line, column) = self.get_span_location(&body.span);
+
+        self.eval_expr(body, call_scope.clone()).await.map_err(|e| {
+            e.with_stack_frame(StackFrame {
+                function_name: "<lambda>".to_string(),
+                file,
+                line,
+                column,
+            })
+        })
     }
 
     pub async fn call_lambda_public(
@@ -2091,6 +2128,21 @@ impl Evaluator {
     fn register_builtins(&mut self) {
         crate::natives::register_all(self);
     }
+
+    fn get_span_location(&self, span: &starlark_syntax::codemap::Span) -> (usize, usize) {
+        if let Some(ref codemap) = self.codemap {
+            let full_span = codemap.full_span();
+            if span.begin() <= full_span.end() && span.end() <= full_span.end() {
+                let pos = codemap.resolve_span(*span);
+                (pos.begin.line, pos.begin.column)
+            } else {
+                (0, 0)
+            }
+        } else {
+            (0, 0)
+        }
+    }
+
 }
 
 impl Default for Evaluator {

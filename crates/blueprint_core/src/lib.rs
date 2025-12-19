@@ -1,7 +1,7 @@
 mod error;
 mod value;
 
-pub use error::{BlueprintError, Result, SourceLocation, Span};
+pub use error::{BlueprintError, Result, SourceLocation, Span, StackFrame, StackTrace};
 pub use value::{
     Generator, GeneratorMessage, HttpResponse, LambdaFunction, NativeFunction, NativeFn,
     NativeFuture, Parameter, ParameterKind, ProcessResult, StreamIterator, UserFunction, Value,

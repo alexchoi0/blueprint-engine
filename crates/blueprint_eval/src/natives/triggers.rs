@@ -410,6 +410,16 @@ async fn value_to_json(value: &Value) -> serde_json::Value {
     }
 }
 
+fn normalize_cron_schedule(schedule: &str) -> String {
+    let fields: Vec<&str> = schedule.split_whitespace().collect();
+    match fields.len() {
+        5 => format!("0 {}", schedule),
+        6 => schedule.to_string(),
+        7 => schedule.to_string(),
+        _ => schedule.to_string(),
+    }
+}
+
 async fn cron_fn(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> {
     if args.len() < 2 {
         return Err(BlueprintError::ArgumentError {
@@ -417,8 +427,10 @@ async fn cron_fn(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
         });
     }
 
-    let schedule = args[0].as_string()?;
+    let schedule_input = args[0].as_string()?;
     let handler = args[1].clone();
+
+    let schedule = normalize_cron_schedule(&schedule_input);
 
     let id = format!("cron-{}", Uuid::new_v4().to_string().split('-').next().unwrap());
     let running = Arc::new(RwLock::new(true));
@@ -428,7 +440,7 @@ async fn cron_fn(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
     let handle = TriggerHandle {
         id: id.clone(),
         trigger_type: TriggerType::Cron {
-            schedule: schedule.clone(),
+            schedule: schedule_input.clone(),
         },
         running: running.clone(),
     };
@@ -452,7 +464,7 @@ async fn cron_fn(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
         })
     })
     .map_err(|e| BlueprintError::ArgumentError {
-        message: format!("Invalid cron schedule '{}': {}", schedule, e),
+        message: format!("Invalid cron schedule '{}': {}", schedule_input, e),
     })?;
 
     sched.add(job).await.map_err(|e| BlueprintError::InternalError {

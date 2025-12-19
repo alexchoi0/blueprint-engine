@@ -306,46 +306,84 @@ pub async fn repl(port: Option<u16>) -> Result<()> {
 }
 
 async fn repl_interactive() -> Result<()> {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use rustyline::error::ReadlineError;
+    use rustyline::{Config, Editor, EditMode, KeyEvent, Cmd, EventHandler};
 
     println!("Blueprint REPL (type 'exit' or Ctrl+D to quit)");
+    println!("Press Enter on empty line to execute");
+    println!();
 
     let mut evaluator = Evaluator::new();
     let scope = Scope::new_global();
 
-    let stdin = tokio::io::stdin();
-    let mut reader = BufReader::new(stdin);
-    let mut stdout = tokio::io::stdout();
+    let config = Config::builder()
+        .auto_add_history(true)
+        .bracketed_paste(true)
+        .tab_stop(4)
+        .edit_mode(EditMode::Emacs)
+        .build();
+
+    let mut rl: Editor<(), _> = Editor::with_config(config).map_err(|e| {
+        BlueprintError::InternalError {
+            message: format!("Failed to create REPL: {}", e),
+        }
+    })?;
+
+    rl.bind_sequence(KeyEvent::from('\t'), EventHandler::Simple(Cmd::Insert(1, "    ".to_string())));
+
+    let mut buffer = String::new();
 
     loop {
-        stdout.write_all(b">>> ").await.ok();
-        stdout.flush().await.ok();
+        let prompt = if buffer.is_empty() { ">>> " } else { "... " };
 
-        let mut line = String::new();
-        match reader.read_line(&mut line).await {
-            Ok(0) => break,
-            Ok(_) => {}
-            Err(_) => break,
-        }
+        match rl.readline(prompt) {
+            Ok(line) => {
+                let trimmed = line.trim();
 
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        if trimmed == "exit" || trimmed == "quit" {
-            break;
-        }
+                if buffer.is_empty() && (trimmed == "exit" || trimmed == "quit") {
+                    break;
+                }
 
-        let result = eval_code_in_scope(&mut evaluator, &scope, trimmed).await;
-        match result {
-            Ok(Some(value)) => println!("{}", value),
-            Ok(None) => {}
-            Err(e) => eprintln!("error: {}", e),
+                if trimmed.is_empty() {
+                    if !buffer.is_empty() {
+                        execute_repl_code(&mut evaluator, &scope, &buffer).await;
+                        buffer.clear();
+                    }
+                    continue;
+                }
+
+                buffer.push_str(&line);
+                buffer.push('\n');
+            }
+            Err(ReadlineError::Interrupted) => {
+                buffer.clear();
+                println!("^C");
+                continue;
+            }
+            Err(ReadlineError::Eof) => {
+                if !buffer.is_empty() {
+                    execute_repl_code(&mut evaluator, &scope, &buffer).await;
+                }
+                break;
+            }
+            Err(err) => {
+                eprintln!("Error: {:?}", err);
+                break;
+            }
         }
     }
 
     println!();
     Ok(())
+}
+
+async fn execute_repl_code(evaluator: &mut Evaluator, scope: &Arc<Scope>, code: &str) {
+    let result = eval_code_in_scope(evaluator, scope, code).await;
+    match result {
+        Ok(Some(value)) => println!("{}", value),
+        Ok(None) => {}
+        Err(e) => eprintln!("error: {}", e.format_with_stack()),
+    }
 }
 
 async fn eval_code_in_scope(
@@ -697,7 +735,8 @@ fn expand_globs(patterns: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
 }
 
 fn report_error(path: &Path, error: &BlueprintError) {
-    eprintln!("error: {} in {}", error, path.display());
+    eprintln!("\n--- {} ---", path.display());
+    eprintln!("{}", error.format_with_stack());
 }
 
 pub async fn init_workspace() -> Result<()> {

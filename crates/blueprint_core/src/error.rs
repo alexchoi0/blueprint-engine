@@ -24,6 +24,56 @@ impl std::fmt::Display for SourceLocation {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct StackFrame {
+    pub function_name: String,
+    pub file: Option<String>,
+    pub line: usize,
+    pub column: usize,
+}
+
+impl std::fmt::Display for StackFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let location = match &self.file {
+            Some(file) => format!("{}:{}:{}", file, self.line, self.column),
+            None => format!("line {}:{}", self.line, self.column),
+        };
+        write!(f, "  at {} ({})", self.function_name, location)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StackTrace {
+    pub frames: Vec<StackFrame>,
+}
+
+impl StackTrace {
+    pub fn new() -> Self {
+        Self { frames: Vec::new() }
+    }
+
+    pub fn push(&mut self, frame: StackFrame) {
+        self.frames.push(frame);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+}
+
+impl std::fmt::Display for StackTrace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.frames.is_empty() {
+            return Ok(());
+        }
+        writeln!(f, "Stack trace (most recent call last):")?;
+        for frame in &self.frames {
+            writeln!(f, "{}", frame)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Error)]
 pub enum BlueprintError {
     #[error("Parse error at {location}: {message}")]
@@ -94,6 +144,13 @@ pub enum BlueprintError {
 
     #[error("return")]
     Return { value: Arc<crate::Value> },
+
+    #[error("{error}")]
+    WithStack {
+        error: Box<BlueprintError>,
+        stack: StackTrace,
+        location: Option<SourceLocation>,
+    },
 }
 
 impl BlueprintError {
@@ -115,6 +172,90 @@ impl BlueprintError {
             self,
             BlueprintError::Break | BlueprintError::Continue | BlueprintError::Return { .. }
         )
+    }
+
+    pub fn with_stack_frame(self, frame: StackFrame) -> Self {
+        if self.is_control_flow() {
+            return self;
+        }
+
+        match self {
+            BlueprintError::WithStack { error, mut stack, location } => {
+                stack.push(frame);
+                BlueprintError::WithStack { error, stack, location }
+            }
+            other => {
+                let mut stack = StackTrace::new();
+                stack.push(frame);
+                BlueprintError::WithStack {
+                    error: Box::new(other),
+                    stack,
+                    location: None,
+                }
+            }
+        }
+    }
+
+    pub fn with_location(self, loc: SourceLocation) -> Self {
+        if self.is_control_flow() {
+            return self;
+        }
+
+        match self {
+            BlueprintError::WithStack { error, stack, location: _ } => {
+                BlueprintError::WithStack { error, stack, location: Some(loc) }
+            }
+            other => {
+                BlueprintError::WithStack {
+                    error: Box::new(other),
+                    stack: StackTrace::new(),
+                    location: Some(loc),
+                }
+            }
+        }
+    }
+
+    pub fn stack_trace(&self) -> Option<&StackTrace> {
+        match self {
+            BlueprintError::WithStack { stack, .. } => Some(stack),
+            _ => None,
+        }
+    }
+
+    pub fn error_location(&self) -> Option<&SourceLocation> {
+        match self {
+            BlueprintError::WithStack { location, .. } => location.as_ref(),
+            BlueprintError::ParseError { location, .. } => Some(location),
+            _ => None,
+        }
+    }
+
+    pub fn inner_error(&self) -> &BlueprintError {
+        match self {
+            BlueprintError::WithStack { error, .. } => error.inner_error(),
+            other => other,
+        }
+    }
+
+    pub fn format_with_stack(&self) -> String {
+        let mut result = String::new();
+
+        if let Some(loc) = self.error_location() {
+            result.push_str(&format!("Error at {}: ", loc));
+        } else {
+            result.push_str("Error: ");
+        }
+
+        result.push_str(&format!("{}", self.inner_error()));
+
+        if let Some(stack) = self.stack_trace() {
+            if !stack.is_empty() {
+                result.push_str("\n\n");
+                result.push_str(&format!("{}", stack));
+            }
+        }
+
+        result
     }
 }
 
