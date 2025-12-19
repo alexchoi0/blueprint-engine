@@ -35,7 +35,7 @@ print()
 print("6. enumerate() works with generators:")
 def letters():
     for c in "ABC":
-        emit(c)
+        yield c
 
 for i, letter in enumerate(letters()):
     print(f"   Letter {i}: {letter}")

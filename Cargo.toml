@@ -13,8 +13,8 @@ edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
-starlark = "0.13"
-starlark_syntax = "0.13"
+starlark = { git = "https://github.com/alexchoi0/starlark-rust.git" }
+starlark_syntax = { git = "https://github.com/alexchoi0/starlark-rust.git" }
 tokio = { version = "1.35", features = ["full"] }
 thiserror = "1.0"
 anyhow = "1.0"

@@ -3,7 +3,6 @@ mod builtins;
 mod console;
 mod crypto;
 mod file;
-mod generator;
 mod http;
 mod json;
 mod jwt;
@@ -23,7 +22,6 @@ pub fn register_all(evaluator: &mut Evaluator) {
     console::register(evaluator);
     crypto::register(evaluator);
     file::register(evaluator);
-    generator::register(evaluator);
     http::register(evaluator);
     json::register(evaluator);
     jwt::register(evaluator);

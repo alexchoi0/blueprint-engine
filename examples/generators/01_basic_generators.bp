@@ -1,11 +1,11 @@
 print("=== Blueprint: Basic Generators ===")
 print()
-print("Generators use emit() to yield values lazily.")
+print("Generators use yield to produce values lazily.")
 print()
 
 def count_up(n):
     for i in range(n):
-        emit(i)
+        yield i
 
 print("count_up(5):")
 for num in count_up(5):
@@ -14,7 +14,7 @@ print()
 
 def squares(n):
     for i in range(n):
-        emit(i * i)
+        yield i * i
 
 print("squares(6):")
 for sq in squares(6):
@@ -24,7 +24,7 @@ print()
 def fibonacci_gen(n):
     a, b = 0, 1
     for _ in range(n):
-        emit(a)
+        yield a
         a, b = b, a + b
 
 print("First 10 Fibonacci numbers:")
@@ -35,7 +35,7 @@ print()
 def even_numbers(start, end):
     for i in range(start, end):
         if i % 2 == 0:
-            emit(i)
+            yield i
 
 print("even_numbers(0, 20):")
 for n in even_numbers(0, 20):

@@ -189,6 +189,10 @@ impl Evaluator {
                 })
             }
 
+            StmtP::Yield(expr) => {
+                self.handle_yield(expr.as_ref(), scope).await
+            }
+
             StmtP::Pass => Ok(Value::None),
 
             StmtP::Def(def) => {
@@ -542,11 +546,6 @@ impl Evaluator {
             }
 
             ExprP::Call(callee, args) => {
-                if let ExprP::Identifier(ident) = &callee.node {
-                    if ident.node.ident.as_str() == "emit" {
-                        return self.handle_emit(args, scope).await;
-                    }
-                }
                 let func = self.eval_expr(callee, scope.clone()).await?;
                 let (positional, kwargs) = self.eval_call_args(&args.args, scope.clone()).await?;
                 self.call_function(func, positional, kwargs, scope).await
@@ -2015,20 +2014,18 @@ impl Evaluator {
         Ok(())
     }
 
-    async fn handle_emit(
+    async fn handle_yield(
         &self,
-        args: &starlark_syntax::syntax::ast::CallArgsP<starlark_syntax::syntax::ast::AstNoPayload>,
+        expr: Option<&AstExpr>,
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let yield_tx = scope.get_yield_tx().ok_or_else(|| BlueprintError::ArgumentError {
-            message: "emit() called outside of a generator function".into(),
+            message: "yield used outside of a generator function".into(),
         })?;
 
-        let value = if args.args.is_empty() {
-            Value::None
-        } else {
-            let (positional, _) = self.eval_call_args(&args.args, scope).await?;
-            positional.into_iter().next().unwrap_or(Value::None)
+        let value = match expr {
+            Some(e) => self.eval_expr(e, scope).await?,
+            None => Value::None,
         };
 
         let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();
@@ -2053,6 +2050,7 @@ impl Evaluator {
 
     fn stmt_contains_yield(stmt: &StmtP<starlark_syntax::syntax::ast::AstNoPayload>) -> bool {
         match stmt {
+            StmtP::Yield(_) => true,
             StmtP::Statements(stmts) => stmts.iter().any(|s| Self::contains_yield(s)),
             StmtP::If(_, body) => Self::contains_yield(body),
             StmtP::IfElse(_, bodies) => {
@@ -2071,11 +2069,6 @@ impl Evaluator {
     fn expr_contains_yield(expr: &AstExpr) -> bool {
         match &expr.node {
             ExprP::Call(callee, args) => {
-                if let ExprP::Identifier(ident) = &callee.node {
-                    if ident.node.ident.as_str() == "emit" {
-                        return true;
-                    }
-                }
                 Self::expr_contains_yield(callee)
                     || args.args.iter().any(|arg| {
                         Self::expr_contains_yield(match &arg.node {

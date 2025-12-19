@@ -7,7 +7,7 @@ Blueprint lets you write simple, synchronous-looking scripts while the runtime a
 ## Features
 
 - **Implicit Async I/O** - Write sync code, get async performance
-- **Generators** - Lazy iteration with `emit()` for memory-efficient streaming
+- **Generators** - Lazy iteration with `yield` for memory-efficient streaming
 - **Lazy map/filter** - First-class generator support: `map()`, `filter()`, `iter()` return generators
 - **WebSocket Support** - Native client and server with `ws_connect()` and `ws_server()`
 - **Triggers** - HTTP servers, cron jobs, and interval timers for daemon mode
@@ -154,7 +154,7 @@ for i, content in enumerate(results):
 ```starlark
 def squares(n):
     for i in range(n):
-        emit(i * i)
+        yield i * i
 
 for sq in squares(10):
     print(sq)  # Prints 0, 1, 4, 9, 16, ...
