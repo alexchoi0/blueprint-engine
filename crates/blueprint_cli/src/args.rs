@@ -42,8 +42,14 @@ pub enum Commands {
     Eval {
         #[arg(help = "Expression to evaluate")]
         expression: String,
+
+        #[arg(short, long, help = "Connect to REPL server on specified port")]
+        port: Option<u16>,
     },
 
     #[command(about = "Start interactive REPL session")]
-    Repl,
+    Repl {
+        #[arg(short, long, help = "Start REPL server on specified port")]
+        port: Option<u16>,
+    },
 }

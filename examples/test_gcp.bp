@@ -1,0 +1,12 @@
+load("@bp/gcp", "gcp_auth", "gcs_upload", "gcs_download", "gcs_list", "gcs_delete", "gcs_exists", "gcs_copy", "gcs_get_metadata")
+
+print("Loaded GCP stdlib functions")
+print("gcp_auth:", gcp_auth)
+print("gcs_upload:", gcs_upload)
+print("gcs_download:", gcs_download)
+print("gcs_list:", gcs_list)
+print("gcs_delete:", gcs_delete)
+print("gcs_exists:", gcs_exists)
+print("gcs_copy:", gcs_copy)
+print("gcs_get_metadata:", gcs_get_metadata)
+print("GCP stdlib loaded successfully!")

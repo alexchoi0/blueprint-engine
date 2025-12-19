@@ -30,8 +30,8 @@ fn main() {
                 }
             }
             Commands::Check { scripts, verbose } => runner::check_scripts(scripts, verbose).await,
-            Commands::Eval { expression } => runner::eval_expression(&expression).await,
-            Commands::Repl => runner::repl().await,
+            Commands::Eval { expression, port } => runner::eval_expression(&expression, port).await,
+            Commands::Repl { port } => runner::repl(port).await,
         }
     });
 
