@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use blueprint_core::{BlueprintError, NativeFunction, Result, Value};
 use blueprint_parser::{
@@ -9,8 +9,19 @@ use blueprint_parser::{
 };
 use starlark_syntax::codemap::CodeMap;
 use starlark_syntax::syntax::ast::{AstLiteral, AstAssignTarget, ArgumentP, BinOp};
+use tokio::sync::RwLock;
 
 use crate::scope::{Scope, ScopeKind};
+
+pub struct FrozenModule {
+    exports: HashMap<String, Value>,
+}
+
+static MODULE_CACHE: OnceLock<RwLock<HashMap<String, Arc<FrozenModule>>>> = OnceLock::new();
+
+fn get_module_cache() -> &'static RwLock<HashMap<String, Arc<FrozenModule>>> {
+    MODULE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
 
 pub struct Evaluator {
     natives: HashMap<String, Arc<NativeFunction>>,
@@ -155,8 +166,26 @@ impl Evaluator {
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let module_path = &load.module.node;
-
         let resolved_path = self.resolve_module_path(module_path)?;
+        let canonical_path = std::fs::canonicalize(&resolved_path)
+            .unwrap_or_else(|_| resolved_path.clone())
+            .to_string_lossy()
+            .to_string();
+
+        let cache = get_module_cache();
+
+        {
+            let cache_read = cache.read().await;
+            if let Some(frozen) = cache_read.get(&canonical_path) {
+                return self.bind_load_args(load, &frozen.exports, scope, module_path).await;
+            }
+        }
+
+        let mut cache_write = cache.write().await;
+
+        if let Some(frozen) = cache_write.get(&canonical_path) {
+            return self.bind_load_args(load, &frozen.exports, scope, module_path).await;
+        }
 
         let source = tokio::fs::read_to_string(&resolved_path)
             .await
@@ -169,24 +198,34 @@ impl Evaluator {
         let module = blueprint_parser::parse(&filename, &source)?;
 
         let module_scope = Scope::new_global();
-
-        let abs_path = std::fs::canonicalize(&resolved_path)
-            .unwrap_or_else(|_| resolved_path.clone())
-            .to_string_lossy()
-            .to_string();
         module_scope
-            .define("__file__", Value::String(Arc::new(abs_path)))
+            .define("__file__", Value::String(Arc::new(canonical_path.clone())))
             .await;
 
         let mut module_evaluator = Evaluator::new();
         module_evaluator.set_file(&resolved_path);
         module_evaluator.eval(&module, module_scope.clone()).await?;
 
+        let exports = module_scope.exports().await;
+        let frozen = Arc::new(FrozenModule { exports });
+
+        cache_write.insert(canonical_path, frozen.clone());
+
+        self.bind_load_args(load, &frozen.exports, scope, module_path).await
+    }
+
+    async fn bind_load_args(
+        &self,
+        load: &starlark_syntax::syntax::ast::LoadP<starlark_syntax::syntax::ast::AstNoPayload>,
+        exports: &HashMap<String, Value>,
+        scope: Arc<Scope>,
+        module_path: &str,
+    ) -> Result<Value> {
         for arg in &load.args {
             let local_name = arg.local.node.ident.as_str();
             let their_name = &arg.their.node;
 
-            let value = module_scope.get(their_name).await.ok_or_else(|| {
+            let value = exports.get(their_name).cloned().ok_or_else(|| {
                 BlueprintError::NameError {
                     name: format!(
                         "'{}' not found in module '{}'",

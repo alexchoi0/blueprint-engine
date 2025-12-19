@@ -10,6 +10,7 @@ Blueprint lets you write simple, synchronous-looking scripts while the runtime a
 - **Concurrent Execution** - Run multiple scripts in parallel with `bp run "*.star"`
 - **Parallel Function** - Run tasks concurrently within a script with `parallel()`
 - **Module System** - Import functions and values from other files with `load()`
+- **Frozen Module Cache** - Loaded modules execute once and are shared across parallel tasks
 - **Native Functions** - File I/O, HTTP requests, process execution, JSON, and more
 - **Full Starlark Support** - Functions, lambdas, comprehensions, f-strings
 - **Fast** - Built on Rust and Tokio for maximum performance
@@ -263,6 +264,51 @@ load("math.star", "square")
 def square_sum(a, b):
     return square(a) + square(b)
 ```
+
+### Frozen Module Cache
+
+Loaded modules are cached and execute only once, even when multiple scripts or parallel tasks load the same module. This is ideal for shared resources like database connections or HTTP clients:
+
+```python
+# infra.star - Executes ONCE, shared across all loaders
+print("Initializing...")  # Prints once
+
+servers = start_servers(port=8080)
+db = connect_database("postgres://localhost/mydb")
+```
+
+```python
+# worker_a.star
+load("infra.star", "servers", "db")
+
+def run():
+    return servers.request("/api/users")
+```
+
+```python
+# worker_b.star
+load("infra.star", "servers", "db")
+
+def run():
+    return db.query("SELECT * FROM users")
+```
+
+```python
+# main.star
+load("worker_a.star", run_a="run")
+load("worker_b.star", run_b="run")
+
+# Both workers share the same servers/db instances
+results = parallel([
+    lambda: run_a(),
+    lambda: run_b(),
+])
+```
+
+When `main.star` runs:
+1. `worker_a.star` loads `infra.star` → executes `start_servers()` and `connect_database()`
+2. `worker_b.star` loads `infra.star` → returns cached exports (no re-execution)
+3. Both workers share the same `servers` and `db` instances
 
 ## Script Globals
 

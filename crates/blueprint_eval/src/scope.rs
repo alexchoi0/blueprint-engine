@@ -123,6 +123,10 @@ impl Scope {
         vars
     }
 
+    pub async fn exports(&self) -> HashMap<String, Value> {
+        self.variables.read().await.clone()
+    }
+
     #[async_recursion::async_recursion]
     async fn collect_variables(&self, vars: &mut HashMap<String, Value>) {
         if let Some(ref parent) = self.parent {
