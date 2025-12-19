@@ -368,7 +368,7 @@ impl Evaluator {
             let local_name = arg.local.node.ident.as_str();
             let their_name = &arg.their.node;
 
-            let value = exports.get(their_name).cloned().ok_or_else(|| {
+            let value = exports.get(their_name).ok_or_else(|| {
                 if their_name.starts_with('_') {
                     BlueprintError::ImportError {
                         message: format!(
@@ -386,7 +386,8 @@ impl Evaluator {
                 }
             })?;
 
-            scope.define(local_name, value).await;
+            let copied_value = value.deep_copy().await;
+            scope.define(local_name, copied_value).await;
         }
 
         Ok(Value::None)
