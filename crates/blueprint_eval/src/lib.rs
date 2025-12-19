@@ -4,3 +4,4 @@ mod scope;
 
 pub use eval::Evaluator;
 pub use scope::{Scope, ScopeKind};
+pub use natives::triggers;

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use blueprint_core::{BlueprintError, Result, Value};
-use blueprint_eval::{Evaluator, Scope};
+use blueprint_eval::{Evaluator, Scope, triggers};
 use blueprint_parser::parse;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -130,6 +130,13 @@ async fn run_single_script(
     }
 
     evaluator.eval(&module, scope).await?;
+
+    if triggers::has_active_triggers().await {
+        if verbose {
+            eprintln!("Active triggers detected, waiting for shutdown...");
+        }
+        triggers::wait_for_shutdown().await;
+    }
 
     Ok(())
 }

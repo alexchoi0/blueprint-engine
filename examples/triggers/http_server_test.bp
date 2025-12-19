@@ -1,0 +1,23 @@
+def handle_hello(req):
+    return {"status": 200, "body": "Hello, " + req["path"]}
+
+def handle_json(req):
+    return {"items": [1, 2, 3], "message": "JSON response"}
+
+def handle_stop(req):
+    print("Stopping server...")
+    stop(server)
+    return "Server stopping..."
+
+server = http_server(8080, {
+    "GET /hello": handle_hello,
+    "GET /json": handle_json,
+    "POST /stop": handle_stop,
+})
+
+print("HTTP server started on port 8080")
+print("Server handle:", server)
+print("Endpoints:")
+print("  GET http://localhost:8080/hello")
+print("  GET http://localhost:8080/json")
+print("  POST http://localhost:8080/stop")

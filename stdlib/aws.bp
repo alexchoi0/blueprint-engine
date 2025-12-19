@@ -1,0 +1,616 @@
+AWS_S3_SERVICE = "s3"
+AWS_DEFAULT_REGION = "us-east-1"
+
+
+def aws_auth(access_key=None, secret_key=None, region=None):
+    """
+    Get AWS credentials from parameters or environment.
+
+    Args:
+        access_key: AWS access key ID (defaults to AWS_ACCESS_KEY_ID env var)
+        secret_key: AWS secret access key (defaults to AWS_SECRET_ACCESS_KEY env var)
+        region: AWS region (defaults to AWS_REGION or AWS_DEFAULT_REGION env var, or us-east-1)
+
+    Returns:
+        Dict with "access_key", "secret_key", and "region"
+    """
+    ak = access_key if access_key else env("AWS_ACCESS_KEY_ID")
+    sk = secret_key if secret_key else env("AWS_SECRET_ACCESS_KEY")
+    rg = region if region else env("AWS_REGION")
+    if not rg:
+        rg = env("AWS_DEFAULT_REGION")
+    if not rg:
+        rg = AWS_DEFAULT_REGION
+
+    if not ak:
+        fail("AWS access key not found. Set AWS_ACCESS_KEY_ID or provide access_key parameter")
+    if not sk:
+        fail("AWS secret key not found. Set AWS_SECRET_ACCESS_KEY or provide secret_key parameter")
+
+    return {
+        "access_key": ak,
+        "secret_key": sk,
+        "region": rg
+    }
+
+
+def _get_signing_key(secret_key, date_stamp, region, service):
+    """Derive the signing key for AWS Signature V4."""
+    k_date = hmac_sha256("AWS4" + secret_key, date_stamp)
+    k_region = hmac_sha256(k_date, region, key_hex=True)
+    k_service = hmac_sha256(k_region, service, key_hex=True)
+    k_signing = hmac_sha256(k_service, "aws4_request", key_hex=True)
+    return k_signing
+
+
+def _url_encode(s, safe=""):
+    """URL encode a string, optionally keeping some characters safe."""
+    result = ""
+    for c in s:
+        if c.isalnum() or c == "-" or c == "_" or c == "." or c == "~" or c in safe:
+            result = result + c
+        else:
+            code = ord(c)
+            result = result + "%" + _hex_byte(code)
+    return result
+
+
+def _hex_byte(n):
+    hex_chars = "0123456789ABCDEF"
+    return hex_chars[n // 16] + hex_chars[n % 16]
+
+
+def _sign_request(method, host, path, query_params, headers, payload, credentials, service):
+    """
+    Sign an AWS request using Signature Version 4.
+
+    Returns headers dict with Authorization and other required headers.
+    """
+    region = credentials["region"]
+    access_key = credentials["access_key"]
+    secret_key = credentials["secret_key"]
+
+    now = time()
+    t = _format_amz_date(now)
+    amz_date = t["amz_date"]
+    date_stamp = t["date_stamp"]
+
+    canonical_uri = path if path else "/"
+
+    canonical_querystring = ""
+    if query_params:
+        sorted_keys = sorted(list(query_params.keys()))
+        parts = []
+        for key in sorted_keys:
+            parts = parts + [_url_encode(key) + "=" + _url_encode(str(query_params[key]))]
+        canonical_querystring = "&".join(parts)
+
+    headers_to_sign = {}
+    headers_to_sign["host"] = host
+    headers_to_sign["x-amz-date"] = amz_date
+    headers_to_sign["x-amz-content-sha256"] = sha256(payload)
+
+    for k in headers:
+        headers_to_sign[k.lower()] = headers[k]
+
+    sorted_header_keys = sorted(list(headers_to_sign.keys()))
+    canonical_headers = ""
+    signed_headers = ""
+    for key in sorted_header_keys:
+        canonical_headers = canonical_headers + key + ":" + headers_to_sign[key] + "\n"
+        if signed_headers:
+            signed_headers = signed_headers + ";" + key
+        else:
+            signed_headers = key
+
+    payload_hash = sha256(payload)
+
+    canonical_request = method + "\n" + canonical_uri + "\n" + canonical_querystring + "\n" + canonical_headers + "\n" + signed_headers + "\n" + payload_hash
+
+    algorithm = "AWS4-HMAC-SHA256"
+    credential_scope = date_stamp + "/" + region + "/" + service + "/aws4_request"
+    string_to_sign = algorithm + "\n" + amz_date + "\n" + credential_scope + "\n" + sha256(canonical_request)
+
+    signing_key = _get_signing_key(secret_key, date_stamp, region, service)
+    signature = hmac_sha256(signing_key, string_to_sign, key_hex=True)
+
+    authorization_header = algorithm + " " + "Credential=" + access_key + "/" + credential_scope + ", " + "SignedHeaders=" + signed_headers + ", " + "Signature=" + signature
+
+    result_headers = {}
+    for k in headers:
+        result_headers[k] = headers[k]
+    result_headers["Host"] = host
+    result_headers["X-Amz-Date"] = amz_date
+    result_headers["X-Amz-Content-Sha256"] = payload_hash
+    result_headers["Authorization"] = authorization_header
+
+    return result_headers
+
+
+def _format_amz_date(timestamp):
+    """Format timestamp as AWS date formats."""
+    secs = int(timestamp)
+    days_since_epoch = secs // 86400
+    time_of_day = secs % 86400
+
+    hours = time_of_day // 3600
+    minutes = (time_of_day % 3600) // 60
+    seconds = time_of_day % 60
+
+    year, month, day = _days_to_ymd(days_since_epoch)
+
+    amz_date = str(year) + _pad2(month) + _pad2(day) + "T" + _pad2(hours) + _pad2(minutes) + _pad2(seconds) + "Z"
+    date_stamp = str(year) + _pad2(month) + _pad2(day)
+
+    return {"amz_date": amz_date, "date_stamp": date_stamp}
+
+
+def _pad2(n):
+    """Pad number to 2 digits."""
+    if n < 10:
+        return "0" + str(n)
+    return str(n)
+
+
+def _days_to_ymd(days):
+    """Convert days since epoch to year, month, day."""
+    year = 1970
+    for _ in range(200):
+        days_in_year = 366 if _is_leap_year(year) else 365
+        if days < days_in_year:
+            break
+        days = days - days_in_year
+        year = year + 1
+
+    month = 1
+    for _ in range(12):
+        days_in_month = _days_in_month(year, month)
+        if days < days_in_month:
+            break
+        days = days - days_in_month
+        month = month + 1
+
+    day = days + 1
+    return year, month, day
+
+
+def _is_leap_year(year):
+    return (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+
+
+def _days_in_month(year, month):
+    if month == 2:
+        return 29 if _is_leap_year(year) else 28
+    if month in [4, 6, 9, 11]:
+        return 30
+    return 31
+
+
+def s3_upload(bucket, key, data, content_type=None, access_key=None, secret_key=None, region=None):
+    """
+    Upload data to an S3 object.
+
+    Args:
+        bucket: Bucket name
+        key: Object key/path
+        data: String data to upload
+        content_type: MIME type (default: application/octet-stream)
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status and metadata
+    """
+    if content_type == None:
+        content_type = "application/octet-stream"
+
+    creds = aws_auth(access_key=access_key, secret_key=secret_key, region=region)
+    host = bucket + ".s3." + creds["region"] + ".amazonaws.com"
+    path = "/" + key
+
+    headers = {"Content-Type": content_type}
+    signed_headers = _sign_request("PUT", host, path, None, headers, data, creds, AWS_S3_SERVICE)
+
+    url = "https://" + host + path
+    resp = http_request("PUT", url, headers=signed_headers, body=data)
+
+    if resp.status < 200 or resp.status >= 300:
+        return {"success": False, "error": resp.body, "code": resp.status}
+
+    return {
+        "success": True,
+        "data": None,
+        "metadata": {
+            "bucket": bucket,
+            "key": key,
+            "size": len(data),
+            "content_type": content_type
+        }
+    }
+
+
+def s3_upload_file(bucket, key, file, content_type=None, access_key=None, secret_key=None, region=None):
+    """
+    Upload a file to S3.
+
+    Args:
+        bucket: Bucket name
+        key: Object key/path
+        file: Local file path
+        content_type: MIME type (auto-detected if not provided)
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status and metadata
+    """
+    if content_type == None:
+        content_type = _guess_content_type(file)
+
+    data = read_file(file)
+    return s3_upload(bucket, key, data, content_type=content_type, access_key=access_key, secret_key=secret_key, region=region)
+
+
+def s3_download(bucket, key, access_key=None, secret_key=None, region=None):
+    """
+    Download an S3 object as string.
+
+    Args:
+        bucket: Bucket name
+        key: Object key/path
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status and data
+    """
+    creds = aws_auth(access_key=access_key, secret_key=secret_key, region=region)
+    host = bucket + ".s3." + creds["region"] + ".amazonaws.com"
+    path = "/" + key
+
+    signed_headers = _sign_request("GET", host, path, None, {}, "", creds, AWS_S3_SERVICE)
+
+    url = "https://" + host + path
+    resp = http_request("GET", url, headers=signed_headers)
+
+    if resp.status < 200 or resp.status >= 300:
+        return {"success": False, "error": resp.body, "code": resp.status}
+
+    return {
+        "success": True,
+        "data": resp.body,
+        "metadata": {
+            "bucket": bucket,
+            "key": key
+        }
+    }
+
+
+def s3_download_file(bucket, key, file, access_key=None, secret_key=None, region=None):
+    """
+    Download an S3 object to a local file.
+
+    Args:
+        bucket: Bucket name
+        key: Object key/path
+        file: Local file path to write
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status and metadata
+    """
+    result = s3_download(bucket, key, access_key=access_key, secret_key=secret_key, region=region)
+    if not result["success"]:
+        return result
+
+    write_file(file, result["data"])
+    return {
+        "success": True,
+        "data": None,
+        "metadata": {
+            "bucket": bucket,
+            "key": key,
+            "file": file,
+            "size": len(result["data"])
+        }
+    }
+
+
+def s3_delete(bucket, key, access_key=None, secret_key=None, region=None):
+    """
+    Delete an S3 object.
+
+    Args:
+        bucket: Bucket name
+        key: Object key/path
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status
+    """
+    creds = aws_auth(access_key=access_key, secret_key=secret_key, region=region)
+    host = bucket + ".s3." + creds["region"] + ".amazonaws.com"
+    path = "/" + key
+
+    signed_headers = _sign_request("DELETE", host, path, None, {}, "", creds, AWS_S3_SERVICE)
+
+    url = "https://" + host + path
+    resp = http_request("DELETE", url, headers=signed_headers)
+
+    if resp.status < 200 or resp.status >= 300:
+        return {"success": False, "error": resp.body, "code": resp.status}
+
+    return {
+        "success": True,
+        "data": None,
+        "metadata": {
+            "bucket": bucket,
+            "key": key
+        }
+    }
+
+
+def s3_exists(bucket, key, access_key=None, secret_key=None, region=None):
+    """
+    Check if an S3 object exists.
+
+    Args:
+        bucket: Bucket name
+        key: Object key/path
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status and exists boolean
+    """
+    creds = aws_auth(access_key=access_key, secret_key=secret_key, region=region)
+    host = bucket + ".s3." + creds["region"] + ".amazonaws.com"
+    path = "/" + key
+
+    signed_headers = _sign_request("HEAD", host, path, None, {}, "", creds, AWS_S3_SERVICE)
+
+    url = "https://" + host + path
+    resp = http_request("HEAD", url, headers=signed_headers)
+
+    return {
+        "success": True,
+        "data": resp.status >= 200 and resp.status < 300,
+        "metadata": {
+            "bucket": bucket,
+            "key": key
+        }
+    }
+
+
+def s3_list(bucket, prefix=None, delimiter=None, max_keys=None, access_key=None, secret_key=None, region=None):
+    """
+    List objects in an S3 bucket.
+
+    Args:
+        bucket: Bucket name
+        prefix: Filter objects by prefix
+        delimiter: Group results by delimiter (e.g., "/" for directories)
+        max_keys: Maximum number of results
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status and list of objects
+    """
+    creds = aws_auth(access_key=access_key, secret_key=secret_key, region=region)
+    host = bucket + ".s3." + creds["region"] + ".amazonaws.com"
+    path = "/"
+
+    query_params = {"list-type": "2"}
+    if prefix:
+        query_params["prefix"] = prefix
+    if delimiter:
+        query_params["delimiter"] = delimiter
+    if max_keys:
+        query_params["max-keys"] = str(max_keys)
+
+    signed_headers = _sign_request("GET", host, path, query_params, {}, "", creds, AWS_S3_SERVICE)
+
+    query_string = ""
+    sorted_keys = sorted(list(query_params.keys()))
+    parts = []
+    for k in sorted_keys:
+        parts = parts + [_url_encode(k) + "=" + _url_encode(str(query_params[k]))]
+    query_string = "&".join(parts)
+
+    url = "https://" + host + path + "?" + query_string
+    resp = http_request("GET", url, headers=signed_headers)
+
+    if resp.status < 200 or resp.status >= 300:
+        return {"success": False, "error": resp.body, "code": resp.status}
+
+    objects = _parse_s3_list_response(resp.body)
+
+    return {
+        "success": True,
+        "data": objects,
+        "metadata": {
+            "bucket": bucket,
+            "count": len(objects)
+        }
+    }
+
+
+def _parse_s3_list_response(xml_body):
+    """Parse S3 ListObjectsV2 XML response into a list of objects."""
+    objects = []
+    pos = 0
+
+    for _ in range(10000):
+        start = xml_body.find("<Contents>", pos)
+        if start == -1:
+            break
+        end = xml_body.find("</Contents>", start)
+        if end == -1:
+            break
+
+        content = xml_body[start:end]
+
+        obj = {}
+
+        key_start = content.find("<Key>")
+        key_end = content.find("</Key>")
+        if key_start != -1 and key_end != -1:
+            obj["key"] = content[key_start + 5:key_end]
+
+        size_start = content.find("<Size>")
+        size_end = content.find("</Size>")
+        if size_start != -1 and size_end != -1:
+            obj["size"] = int(content[size_start + 6:size_end])
+
+        modified_start = content.find("<LastModified>")
+        modified_end = content.find("</LastModified>")
+        if modified_start != -1 and modified_end != -1:
+            obj["last_modified"] = content[modified_start + 14:modified_end]
+
+        etag_start = content.find("<ETag>")
+        etag_end = content.find("</ETag>")
+        if etag_start != -1 and etag_end != -1:
+            obj["etag"] = content[etag_start + 6:etag_end]
+
+        objects = objects + [obj]
+        pos = end + 11
+
+    return objects
+
+
+def s3_copy(src_bucket, src_key, dest_bucket, dest_key, access_key=None, secret_key=None, region=None):
+    """
+    Copy an S3 object.
+
+    Args:
+        src_bucket: Source bucket name
+        src_key: Source object key/path
+        dest_bucket: Destination bucket name
+        dest_key: Destination object key/path
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status and metadata
+    """
+    creds = aws_auth(access_key=access_key, secret_key=secret_key, region=region)
+    host = dest_bucket + ".s3." + creds["region"] + ".amazonaws.com"
+    path = "/" + dest_key
+
+    copy_source = "/" + src_bucket + "/" + src_key
+    headers = {"x-amz-copy-source": copy_source}
+
+    signed_headers = _sign_request("PUT", host, path, None, headers, "", creds, AWS_S3_SERVICE)
+
+    url = "https://" + host + path
+    resp = http_request("PUT", url, headers=signed_headers)
+
+    if resp.status < 200 or resp.status >= 300:
+        return {"success": False, "error": resp.body, "code": resp.status}
+
+    return {
+        "success": True,
+        "data": None,
+        "metadata": {
+            "src_bucket": src_bucket,
+            "src_key": src_key,
+            "dest_bucket": dest_bucket,
+            "dest_key": dest_key
+        }
+    }
+
+
+def s3_get_metadata(bucket, key, access_key=None, secret_key=None, region=None):
+    """
+    Get metadata for an S3 object.
+
+    Args:
+        bucket: Bucket name
+        key: Object key/path
+        access_key: AWS access key ID
+        secret_key: AWS secret access key
+        region: AWS region
+
+    Returns:
+        Dict with success status and object metadata
+    """
+    creds = aws_auth(access_key=access_key, secret_key=secret_key, region=region)
+    host = bucket + ".s3." + creds["region"] + ".amazonaws.com"
+    path = "/" + key
+
+    signed_headers = _sign_request("HEAD", host, path, None, {}, "", creds, AWS_S3_SERVICE)
+
+    url = "https://" + host + path
+    resp = http_request("HEAD", url, headers=signed_headers)
+
+    if resp.status < 200 or resp.status >= 300:
+        return {"success": False, "error": resp.body, "code": resp.status}
+
+    data = {
+        "bucket": bucket,
+        "key": key
+    }
+
+    if "content-length" in resp.headers:
+        data["size"] = int(resp.headers["content-length"])
+    if "content-type" in resp.headers:
+        data["content_type"] = resp.headers["content-type"]
+    if "last-modified" in resp.headers:
+        data["last_modified"] = resp.headers["last-modified"]
+    if "etag" in resp.headers:
+        data["etag"] = resp.headers["etag"]
+
+    return {
+        "success": True,
+        "data": data,
+        "metadata": {
+            "bucket": bucket,
+            "key": key
+        }
+    }
+
+
+def _guess_content_type(path):
+    ext = ""
+    if "." in path:
+        parts = path.split(".")
+        ext = parts[len(parts) - 1].lower()
+
+    content_types = {
+        "json": "application/json",
+        "txt": "text/plain",
+        "html": "text/html",
+        "htm": "text/html",
+        "css": "text/css",
+        "js": "application/javascript",
+        "xml": "application/xml",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "gif": "image/gif",
+        "svg": "image/svg+xml",
+        "pdf": "application/pdf",
+        "zip": "application/zip",
+        "gz": "application/gzip",
+        "gzip": "application/gzip",
+        "tar": "application/x-tar",
+        "csv": "text/csv",
+        "md": "text/markdown",
+        "yaml": "application/yaml",
+        "yml": "application/yaml"
+    }
+
+    if ext in content_types:
+        return content_types[ext]
+    return "application/octet-stream"
