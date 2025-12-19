@@ -4,7 +4,8 @@ use std::sync::{Arc, OnceLock};
 
 use blueprint_core::{
     BlueprintError, Generator, GeneratorMessage, NativeFunction, PackageSpec, Result,
-    SourceLocation, StackFrame, Value, fetch_package, find_workspace_root_from, get_packages_dir_from,
+    SourceLocation, StackFrame, StructField, StructType, TypeAnnotation, Value,
+    fetch_package, find_workspace_root_from, get_packages_dir_from,
 };
 use blueprint_parser::{
     AstExpr, AstParameter, AstStmt, AssignOp, AssignTargetP, Clause,
@@ -207,6 +208,98 @@ impl Evaluator {
             StmtP::Load(load) => {
                 self.eval_load(load, scope).await
             }
+
+            StmtP::Struct(struct_def) => {
+                self.eval_struct_def(struct_def, scope).await
+            }
+        }
+    }
+
+    async fn eval_struct_def(
+        &self,
+        struct_def: &starlark_syntax::syntax::ast::StructP<starlark_syntax::syntax::ast::AstNoPayload>,
+        scope: Arc<Scope>,
+    ) -> Result<Value> {
+        let struct_name = struct_def.name.node.ident.clone();
+
+        let mut fields = Vec::new();
+        for field in &struct_def.fields {
+            let field_name = field.node.name.node.ident.clone();
+            let type_annotation = self.convert_type_expr(&field.node.typ)?;
+            let default = if let Some(ref default_expr) = field.node.default {
+                Some(self.eval_const_expr(default_expr)?)
+            } else {
+                None
+            };
+
+            fields.push(StructField {
+                name: field_name,
+                typ: type_annotation,
+                default,
+            });
+        }
+
+        let struct_type = StructType {
+            name: struct_name.clone(),
+            fields,
+        };
+
+        let value = Value::StructType(Arc::new(struct_type));
+        scope.define(&struct_name, value.clone()).await;
+        Ok(value)
+    }
+
+    fn convert_type_expr(
+        &self,
+        type_expr: &starlark_syntax::syntax::ast::AstTypeExprP<starlark_syntax::syntax::ast::AstNoPayload>,
+    ) -> Result<TypeAnnotation> {
+        self.convert_expr_to_type_annotation(&type_expr.node.expr)
+    }
+
+    fn convert_expr_to_type_annotation(
+        &self,
+        expr: &AstExpr,
+    ) -> Result<TypeAnnotation> {
+        match &expr.node {
+            ExprP::Identifier(ident) => {
+                Ok(TypeAnnotation::Simple(ident.node.ident.clone()))
+            }
+            ExprP::Index(pair) => {
+                let (base, index) = pair.as_ref();
+                let base_name = match &base.node {
+                    ExprP::Identifier(ident) => ident.node.ident.clone(),
+                    _ => return Err(BlueprintError::ValueError {
+                        message: "invalid type annotation".into(),
+                    }),
+                };
+
+                let params = match &index.node {
+                    ExprP::Tuple(items) => {
+                        let mut type_params = Vec::new();
+                        for item in items {
+                            type_params.push(self.convert_expr_to_type_annotation(item)?);
+                        }
+                        type_params
+                    }
+                    _ => vec![self.convert_expr_to_type_annotation(index)?],
+                };
+
+                Ok(TypeAnnotation::Parameterized(base_name, params))
+            }
+            ExprP::Op(lhs, starlark_syntax::syntax::ast::BinOp::BitOr, rhs) => {
+                if let ExprP::Identifier(ident) = &rhs.node {
+                    if ident.node.ident == "None" {
+                        let inner = self.convert_expr_to_type_annotation(lhs)?;
+                        return Ok(TypeAnnotation::Optional(Box::new(inner)));
+                    }
+                }
+                Err(BlueprintError::ValueError {
+                    message: "invalid type annotation with | operator".into(),
+                })
+            }
+            _ => Err(BlueprintError::ValueError {
+                message: format!("unsupported type annotation expression"),
+            }),
         }
     }
 
@@ -1465,6 +1558,10 @@ impl Evaluator {
             Value::NativeFunction(f) => f.call(args, kwargs).await,
             Value::Function(f) => self.call_user_function(&f, args, kwargs, scope).await,
             Value::Lambda(f) => self.call_lambda(&f, args, kwargs, scope).await,
+            Value::StructType(s) => {
+                let instance = s.instantiate(args, kwargs)?;
+                Ok(Value::StructInstance(Arc::new(instance)))
+            }
             _ => Err(BlueprintError::NotCallable {
                 type_name: func.type_name().into(),
             }),

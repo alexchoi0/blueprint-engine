@@ -148,6 +148,9 @@ pub enum BlueprintError {
     #[error("exit with code {code}")]
     Exit { code: i32 },
 
+    #[error("")]
+    Silent,
+
     #[error("{error}")]
     WithStack {
         error: Box<BlueprintError>,

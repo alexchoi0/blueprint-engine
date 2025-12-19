@@ -9,5 +9,6 @@ pub use package::{
 };
 pub use value::{
     Generator, GeneratorMessage, HttpResponse, LambdaFunction, NativeFunction, NativeFn,
-    NativeFuture, Parameter, ParameterKind, ProcessResult, StreamIterator, UserFunction, Value,
+    NativeFuture, Parameter, ParameterKind, ProcessResult, StreamIterator, StructField,
+    StructInstance, StructType, TypeAnnotation, UserFunction, Value,
 };

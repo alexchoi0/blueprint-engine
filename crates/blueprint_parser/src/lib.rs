@@ -1,6 +1,6 @@
 use blueprint_core::{BlueprintError, Result, SourceLocation, Span};
 use starlark_syntax::codemap::CodeMap;
-use starlark_syntax::dialect::Dialect;
+use starlark_syntax::dialect::{Dialect, DialectTypes};
 use starlark_syntax::syntax::module::AstModuleFields;
 use starlark_syntax::syntax::AstModule;
 
@@ -28,6 +28,7 @@ pub fn parse(filename: &str, content: &str) -> Result<ParsedModule> {
         enable_lambda: true,
         enable_keyword_only_arguments: true,
         enable_top_level_stmt: true,
+        enable_types: DialectTypes::Enable,
         ..Dialect::Standard
     };
 

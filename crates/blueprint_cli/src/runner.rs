@@ -99,9 +99,7 @@ pub async fn run_scripts(
         for (path, error) in &errors {
             report_error(path, error);
         }
-        return Err(BlueprintError::InternalError {
-            message: format!("{} script(s) failed", errors.len()),
-        });
+        return Err(BlueprintError::Silent);
     }
 
     Ok(())
