@@ -8,6 +8,7 @@ Blueprint lets you write simple, synchronous-looking scripts while the runtime a
 
 - **Implicit Async I/O** - Write sync code, get async performance
 - **Concurrent Execution** - Run multiple scripts in parallel with `bp run "*.star"`
+- **Parallel Function** - Run tasks concurrently within a script with `parallel()`
 - **Native Functions** - File I/O, HTTP requests, process execution, JSON, and more
 - **Full Starlark Support** - Functions, lambdas, comprehensions, f-strings
 - **Fast** - Built on Rust and Tokio for maximum performance
@@ -15,12 +16,9 @@ Blueprint lets you write simple, synchronous-looking scripts while the runtime a
 ## Installation
 
 ```bash
-# Clone and build
 git clone https://github.com/alexchoi0/blueprint.git
 cd blueprint
 cargo build --release
-
-# Add to PATH
 cp target/release/bp /usr/local/bin/
 ```
 
@@ -50,16 +48,13 @@ bp check script.star
 # deploy.star
 print("Starting deployment...")
 
-# Read configuration
 config = json.decode(read_file("config.json"))
 print(f"Deploying {config['app']} to {config['env']}")
 
-# Run build
 result = shell("npm run build")
 if result.code != 0:
     fail("Build failed: " + result.stderr)
 
-# Upload files
 for file in glob("dist/*"):
     print(f"Uploading {file}...")
 
@@ -99,6 +94,13 @@ print(result.stdout)
 
 # With options
 result = run(["cmd"], cwd="/some/dir", env={"KEY": "value"})
+```
+
+### Environment Variables
+```python
+home = env("HOME")
+path = env("MY_VAR", "default_value")
+set_env("MY_VAR", "new_value")
 ```
 
 ### HTTP Requests
@@ -142,6 +144,29 @@ eprint("Error!")            # Print to stderr
 name = input("Name: ")      # Read from stdin
 ```
 
+### Parallel Execution
+```python
+# Run multiple I/O operations concurrently
+results = parallel([
+    lambda: http_request("GET", "https://api1.com/data"),
+    lambda: http_request("GET", "https://api2.com/data"),
+    lambda: http_request("GET", "https://api3.com/data"),
+])
+
+# Results are returned in order
+resp1, resp2, resp3 = results[0], results[1], results[2]
+
+# Works with any functions
+def fetch_user(id):
+    return http_request("GET", f"https://api.com/users/{id}")
+
+users = parallel([
+    lambda: fetch_user(1),
+    lambda: fetch_user(2),
+    lambda: fetch_user(3),
+])
+```
+
 ### Builtins
 ```python
 len([1, 2, 3])              # 3
@@ -177,6 +202,12 @@ s.find("World")             # 7
 "Hi {}!".format("there")    # "Hi there!"
 ```
 
+### Control Flow
+```python
+fail("Something went wrong")    # Exit with error
+assert(x > 0, "x must be positive")
+```
+
 ## Script Globals
 
 Scripts have access to:
@@ -184,7 +215,6 @@ Scripts have access to:
 - `__file__` - Absolute path to the current script
 
 ```python
-# script.star
 print("Script:", __file__)
 print("Args:", argv[1:])
 ```
@@ -198,7 +228,7 @@ bp run script.star -- arg1 arg2
 Blueprint runs multiple scripts concurrently on a single Tokio runtime:
 
 ```bash
-# Run all .star files in parallel (default: unlimited concurrency)
+# Run all .star files in parallel
 bp run "scripts/*.star"
 
 # Limit to 4 concurrent scripts
@@ -224,16 +254,9 @@ blueprint/
 ## Building
 
 ```bash
-# Debug build
-cargo build
-
-# Release build
-cargo build --release
-
-# Run tests
-cargo test
-
-# Run examples
+cargo build              # Debug build
+cargo build --release    # Release build
+cargo test               # Run tests
 cargo run --bin bp -- run "examples/*.star"
 ```
 
