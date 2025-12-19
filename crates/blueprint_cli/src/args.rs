@@ -43,4 +43,7 @@ pub enum Commands {
         #[arg(help = "Expression to evaluate")]
         expression: String,
     },
+
+    #[command(about = "Start interactive REPL session")]
+    Repl,
 }

@@ -241,6 +241,73 @@ pub async fn eval_expression(expression: &str) -> Result<()> {
     Ok(())
 }
 
+pub async fn repl() -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    println!("Blueprint REPL (type 'exit' or Ctrl+D to quit)");
+
+    let mut evaluator = Evaluator::new();
+    let scope = Scope::new_global();
+
+    let stdin = tokio::io::stdin();
+    let mut reader = BufReader::new(stdin);
+    let mut stdout = tokio::io::stdout();
+
+    loop {
+        stdout.write_all(b">>> ").await.ok();
+        stdout.flush().await.ok();
+
+        let mut line = String::new();
+        match reader.read_line(&mut line).await {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed == "exit" || trimmed == "quit" {
+            break;
+        }
+
+        let is_expr = !trimmed.contains('=')
+            && !trimmed.starts_with("def ")
+            && !trimmed.starts_with("if ")
+            && !trimmed.starts_with("for ")
+            && !trimmed.starts_with("print(")
+            && !trimmed.starts_with("load(");
+
+        let code = if is_expr {
+            format!("__repl_result__ = {}", trimmed)
+        } else {
+            trimmed.to_string()
+        };
+
+        match parse("<repl>", &code) {
+            Ok(module) => {
+                match evaluator.eval(&module, scope.clone()).await {
+                    Ok(_) => {
+                        if is_expr {
+                            if let Some(result) = scope.get("__repl_result__").await {
+                                if !result.is_none() {
+                                    println!("{}", result.repr());
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("error: {}", e),
+                }
+            }
+            Err(e) => eprintln!("error: {}", e),
+        }
+    }
+
+    println!();
+    Ok(())
+}
+
 fn expand_globs(patterns: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     let mut result = vec![];
 
