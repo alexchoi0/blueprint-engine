@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -87,7 +88,7 @@ fn create_ws_connection(
         },
     )));
 
-    let mut ws_dict: HashMap<String, Value> = HashMap::new();
+    let mut ws_dict: IndexMap<String, Value> = IndexMap::new();
     ws_dict.insert("send".to_string(), send_method);
     ws_dict.insert("recv".to_string(), recv_method);
     ws_dict.insert("close".to_string(), close_method);
@@ -275,7 +276,7 @@ async fn ws_server(args: Vec<Value>, kwargs: HashMap<String, Value>) -> Result<V
             .ok();
     });
 
-    let mut result = HashMap::new();
+    let mut result = IndexMap::new();
     result.insert("id".to_string(), Value::String(Arc::new(id)));
     result.insert("port".to_string(), Value::Int(port as i64));
     result.insert("host".to_string(), Value::String(Arc::new(host)));

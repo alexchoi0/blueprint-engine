@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 use std::time::Duration;
@@ -89,7 +90,7 @@ async fn ask_terminal(prompt: &str, timeout_secs: Option<f64>) -> Result<Value> 
 }
 
 fn build_response(approved: bool, method: &str, timeout_secs: Option<f64>) -> Value {
-    let mut result = HashMap::new();
+    let mut result = IndexMap::new();
     result.insert("approved".to_string(), Value::Bool(approved));
     result.insert("method".to_string(), Value::String(Arc::new(method.to_string())));
 

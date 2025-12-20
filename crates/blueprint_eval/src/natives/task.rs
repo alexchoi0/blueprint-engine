@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -150,7 +151,7 @@ async fn execute_callable(func_value: Value) -> Result<Value> {
 }
 
 fn build_result(value: Value, success: bool, reason: Option<&str>) -> Value {
-    let mut result = HashMap::new();
+    let mut result = IndexMap::new();
     result.insert("value".to_string(), value);
     result.insert("success".to_string(), Value::Bool(success));
 
@@ -167,7 +168,7 @@ fn build_result_with_timing(
     reason: Option<&str>,
     elapsed: f64,
 ) -> Value {
-    let mut result = HashMap::new();
+    let mut result = IndexMap::new();
     result.insert("value".to_string(), value);
     result.insert("success".to_string(), Value::Bool(success));
     result.insert("elapsed".to_string(), Value::Float(elapsed));

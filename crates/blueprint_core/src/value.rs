@@ -1,3 +1,4 @@
+use indexmap::{IndexMap, IndexSet};
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
@@ -20,7 +21,8 @@ pub enum Value {
     Float(f64),
     String(Arc<String>),
     List(Arc<RwLock<Vec<Value>>>),
-    Dict(Arc<RwLock<HashMap<String, Value>>>),
+    Dict(Arc<RwLock<IndexMap<String, Value>>>),
+    Set(Arc<RwLock<IndexSet<Value>>>),
     Tuple(Arc<Vec<Value>>),
     Function(Arc<UserFunction>),
     Lambda(Arc<LambdaFunction>),
@@ -43,6 +45,7 @@ impl fmt::Debug for Value {
             Value::String(s) => write!(f, "String({s:?})"),
             Value::List(_) => write!(f, "List([...])"),
             Value::Dict(_) => write!(f, "Dict({{...}})"),
+            Value::Set(_) => write!(f, "Set({{...}})"),
             Value::Tuple(t) => write!(f, "Tuple({:?})", t.as_ref()),
             Value::Function(func) => write!(f, "Function({})", func.name),
             Value::Lambda(_) => write!(f, "Lambda"),
@@ -67,6 +70,7 @@ impl Value {
             Value::String(_) => "string",
             Value::List(_) => "list",
             Value::Dict(_) => "dict",
+            Value::Set(_) => "set",
             Value::Tuple(_) => "tuple",
             Value::Function(_) => "function",
             Value::Lambda(_) => "function",
@@ -101,6 +105,13 @@ impl Value {
                     true
                 }
             }
+            Value::Set(s) => {
+                if let Ok(guard) = s.try_read() {
+                    !guard.is_empty()
+                } else {
+                    true
+                }
+            }
             Value::Tuple(t) => !t.is_empty(),
             _ => true,
         }
@@ -119,6 +130,10 @@ impl Value {
             }
             Value::Dict(d) => {
                 let guard = d.read().await;
+                !guard.is_empty()
+            }
+            Value::Set(s) => {
+                let guard = s.read().await;
                 !guard.is_empty()
             }
             Value::Tuple(t) => !t.is_empty(),
@@ -142,7 +157,7 @@ impl Value {
             }
             Value::Dict(d) => {
                 let map = d.read().await;
-                let mut copied = HashMap::with_capacity(map.len());
+                let mut copied = IndexMap::with_capacity(map.len());
                 for (k, v) in map.iter() {
                     copied.insert(k.clone(), Box::pin(v.deep_copy()).await);
                 }
@@ -244,6 +259,15 @@ impl Value {
                     Err(_) => "{<locked>}".into(),
                 }
             }
+            Value::Set(s) => {
+                match s.try_read() {
+                    Ok(guard) => {
+                        let items: Vec<String> = guard.iter().map(|v| v.repr()).collect();
+                        format!("{{{}}}", items.join(", "))
+                    }
+                    Err(_) => "{<locked>}".into(),
+                }
+            }
             Value::Tuple(t) => {
                 let items: Vec<String> = t.iter().map(|v| v.repr()).collect();
                 if t.len() == 1 {
@@ -278,6 +302,7 @@ impl Value {
             Value::String(s) => get_string_method(s.clone(), name),
             Value::List(l) => get_list_method(l.clone(), name),
             Value::Dict(d) => get_dict_method(d.clone(), name),
+            Value::Set(s) => get_set_method(s.clone(), name),
             Value::Iterator(it) => it.get_attr(name),
             Value::StructInstance(s) => s.get_field(name),
             _ => None,
@@ -419,7 +444,7 @@ impl HttpResponse {
             "status" => Some(Value::Int(self.status)),
             "body" => Some(Value::String(Arc::new(self.body.clone()))),
             "headers" => {
-                let map: HashMap<String, Value> = self
+                let map: IndexMap<String, Value> = self
                     .headers
                     .iter()
                     .map(|(k, v)| (k.clone(), Value::String(Arc::new(v.clone()))))
@@ -846,7 +871,7 @@ fn get_list_method(l: Arc<RwLock<Vec<Value>>>, name: &str) -> Option<Value> {
     }
 }
 
-fn get_dict_method(d: Arc<RwLock<HashMap<String, Value>>>, name: &str) -> Option<Value> {
+fn get_dict_method(d: Arc<RwLock<IndexMap<String, Value>>>, name: &str) -> Option<Value> {
     match name {
         "get" => {
             let d_clone = d.clone();
@@ -926,11 +951,346 @@ fn get_dict_method(d: Arc<RwLock<HashMap<String, Value>>>, name: &str) -> Option
     }
 }
 
+fn get_set_method(s: Arc<RwLock<IndexSet<Value>>>, name: &str) -> Option<Value> {
+    match name {
+        "add" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "add",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("add() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let mut set = s.write().await;
+                        set.insert(args[0].clone());
+                        Ok(Value::None)
+                    })
+                },
+            ))))
+        }
+        "remove" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "remove",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("remove() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let mut set = s.write().await;
+                        if !set.shift_remove(&args[0]) {
+                            return Err(BlueprintError::KeyError {
+                                key: args[0].to_display_string(),
+                            });
+                        }
+                        Ok(Value::None)
+                    })
+                },
+            ))))
+        }
+        "discard" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "discard",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("discard() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let mut set = s.write().await;
+                        set.shift_remove(&args[0]);
+                        Ok(Value::None)
+                    })
+                },
+            ))))
+        }
+        "pop" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "pop",
+                move |_args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        let mut set = s.write().await;
+                        if set.is_empty() {
+                            return Err(BlueprintError::KeyError {
+                                key: "pop from an empty set".into(),
+                            });
+                        }
+                        let item = set.iter().next().cloned().unwrap();
+                        set.shift_remove(&item);
+                        Ok(item)
+                    })
+                },
+            ))))
+        }
+        "clear" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "clear",
+                move |_args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        let mut set = s.write().await;
+                        set.clear();
+                        Ok(Value::None)
+                    })
+                },
+            ))))
+        }
+        "copy" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "copy",
+                move |_args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        let set = s.read().await;
+                        Ok(Value::Set(Arc::new(RwLock::new(set.clone()))))
+                    })
+                },
+            ))))
+        }
+        "union" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "union",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("union() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let set = s.read().await;
+                        let other = match &args[0] {
+                            Value::Set(other) => other.read().await.clone(),
+                            Value::List(l) => l.read().await.iter().cloned().collect(),
+                            Value::Tuple(t) => t.iter().cloned().collect(),
+                            _ => return Err(BlueprintError::TypeError {
+                                expected: "set, list, or tuple".into(),
+                                actual: args[0].type_name().into(),
+                            }),
+                        };
+                        let result: IndexSet<Value> = set.union(&other).cloned().collect();
+                        Ok(Value::Set(Arc::new(RwLock::new(result))))
+                    })
+                },
+            ))))
+        }
+        "intersection" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "intersection",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("intersection() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let set = s.read().await;
+                        let other = match &args[0] {
+                            Value::Set(other) => other.read().await.clone(),
+                            Value::List(l) => l.read().await.iter().cloned().collect(),
+                            Value::Tuple(t) => t.iter().cloned().collect(),
+                            _ => return Err(BlueprintError::TypeError {
+                                expected: "set, list, or tuple".into(),
+                                actual: args[0].type_name().into(),
+                            }),
+                        };
+                        let result: IndexSet<Value> = set.intersection(&other).cloned().collect();
+                        Ok(Value::Set(Arc::new(RwLock::new(result))))
+                    })
+                },
+            ))))
+        }
+        "difference" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "difference",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("difference() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let set = s.read().await;
+                        let other = match &args[0] {
+                            Value::Set(other) => other.read().await.clone(),
+                            Value::List(l) => l.read().await.iter().cloned().collect(),
+                            Value::Tuple(t) => t.iter().cloned().collect(),
+                            _ => return Err(BlueprintError::TypeError {
+                                expected: "set, list, or tuple".into(),
+                                actual: args[0].type_name().into(),
+                            }),
+                        };
+                        let result: IndexSet<Value> = set.difference(&other).cloned().collect();
+                        Ok(Value::Set(Arc::new(RwLock::new(result))))
+                    })
+                },
+            ))))
+        }
+        "symmetric_difference" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "symmetric_difference",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("symmetric_difference() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let set = s.read().await;
+                        let other = match &args[0] {
+                            Value::Set(other) => other.read().await.clone(),
+                            Value::List(l) => l.read().await.iter().cloned().collect(),
+                            Value::Tuple(t) => t.iter().cloned().collect(),
+                            _ => return Err(BlueprintError::TypeError {
+                                expected: "set, list, or tuple".into(),
+                                actual: args[0].type_name().into(),
+                            }),
+                        };
+                        let result: IndexSet<Value> = set.symmetric_difference(&other).cloned().collect();
+                        Ok(Value::Set(Arc::new(RwLock::new(result))))
+                    })
+                },
+            ))))
+        }
+        "issubset" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "issubset",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("issubset() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let set = s.read().await;
+                        let other = match &args[0] {
+                            Value::Set(other) => other.read().await.clone(),
+                            Value::List(l) => l.read().await.iter().cloned().collect(),
+                            Value::Tuple(t) => t.iter().cloned().collect(),
+                            _ => return Err(BlueprintError::TypeError {
+                                expected: "set, list, or tuple".into(),
+                                actual: args[0].type_name().into(),
+                            }),
+                        };
+                        Ok(Value::Bool(set.is_subset(&other)))
+                    })
+                },
+            ))))
+        }
+        "issuperset" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "issuperset",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("issuperset() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let set = s.read().await;
+                        let other = match &args[0] {
+                            Value::Set(other) => other.read().await.clone(),
+                            Value::List(l) => l.read().await.iter().cloned().collect(),
+                            Value::Tuple(t) => t.iter().cloned().collect(),
+                            _ => return Err(BlueprintError::TypeError {
+                                expected: "set, list, or tuple".into(),
+                                actual: args[0].type_name().into(),
+                            }),
+                        };
+                        Ok(Value::Bool(set.is_superset(&other)))
+                    })
+                },
+            ))))
+        }
+        "isdisjoint" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "isdisjoint",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("isdisjoint() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let set = s.read().await;
+                        let other = match &args[0] {
+                            Value::Set(other) => other.read().await.clone(),
+                            Value::List(l) => l.read().await.iter().cloned().collect(),
+                            Value::Tuple(t) => t.iter().cloned().collect(),
+                            _ => return Err(BlueprintError::TypeError {
+                                expected: "set, list, or tuple".into(),
+                                actual: args[0].type_name().into(),
+                            }),
+                        };
+                        Ok(Value::Bool(set.is_disjoint(&other)))
+                    })
+                },
+            ))))
+        }
+        "update" => {
+            let s_clone = s.clone();
+            Some(Value::NativeFunction(Arc::new(NativeFunction::new_with_state(
+                "update",
+                move |args, _kwargs| {
+                    let s = s_clone.clone();
+                    Box::pin(async move {
+                        if args.len() != 1 {
+                            return Err(BlueprintError::ArgumentError {
+                                message: format!("update() takes exactly 1 argument ({} given)", args.len()),
+                            });
+                        }
+                        let other = match &args[0] {
+                            Value::Set(other) => other.read().await.clone(),
+                            Value::List(l) => l.read().await.iter().cloned().collect(),
+                            Value::Tuple(t) => t.iter().cloned().collect(),
+                            _ => return Err(BlueprintError::TypeError {
+                                expected: "set, list, or tuple".into(),
+                                actual: args[0].type_name().into(),
+                            }),
+                        };
+                        let mut set = s.write().await;
+                        set.extend(other);
+                        Ok(Value::None)
+                    })
+                },
+            ))))
+        }
+        _ => None,
+    }
+}
+
 pub struct StreamIterator {
     rx: Mutex<mpsc::Receiver<Option<String>>>,
     content: Mutex<String>,
     done: Mutex<bool>,
-    result: Mutex<Option<HashMap<String, Value>>>,
+    result: Mutex<Option<IndexMap<String, Value>>>,
 }
 
 impl StreamIterator {
@@ -963,7 +1323,7 @@ impl StreamIterator {
         }
     }
 
-    pub async fn set_result(&self, result: HashMap<String, Value>) {
+    pub async fn set_result(&self, result: IndexMap<String, Value>) {
         let mut r = self.result.lock().await;
         *r = Some(result);
     }
@@ -1118,7 +1478,7 @@ pub struct StructType {
 
 impl StructType {
     pub fn instantiate(&self, args: Vec<Value>, kwargs: HashMap<String, Value>) -> Result<StructInstance> {
-        let mut field_values: HashMap<String, Value> = HashMap::new();
+        let mut field_values: IndexMap<String, Value> = IndexMap::new();
 
         let mut positional_idx = 0;
         for field in &self.fields {
@@ -1183,7 +1543,7 @@ impl StructType {
 #[derive(Debug, Clone)]
 pub struct StructInstance {
     pub struct_type: Arc<StructType>,
-    pub fields: HashMap<String, Value>,
+    pub fields: IndexMap<String, Value>,
 }
 
 impl StructInstance {

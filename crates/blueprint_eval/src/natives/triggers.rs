@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -127,7 +128,7 @@ pub async fn wait_for_shutdown() {
 }
 
 fn handle_to_value(handle: &TriggerHandle) -> Value {
-    let mut map = HashMap::new();
+    let mut map = IndexMap::new();
     map.insert("id".to_string(), Value::String(Arc::new(handle.id.clone())));
 
     match &handle.trigger_type {
@@ -275,7 +276,7 @@ async fn execute_http_handler(handler: Value, req: Request<Body>) -> impl IntoRe
     let path = req.uri().path().to_string();
     let query = req.uri().query().unwrap_or("").to_string();
 
-    let mut headers_map = HashMap::new();
+    let mut headers_map = IndexMap::new();
     for (name, value) in req.headers().iter() {
         if let Ok(v) = value.to_str() {
             headers_map.insert(
@@ -290,7 +291,7 @@ async fn execute_http_handler(handler: Value, req: Request<Body>) -> impl IntoRe
         .unwrap_or_default();
     let body_str = String::from_utf8_lossy(&body_bytes).to_string();
 
-    let mut request_dict = HashMap::new();
+    let mut request_dict = IndexMap::new();
     request_dict.insert("method".to_string(), Value::String(Arc::new(method)));
     request_dict.insert("path".to_string(), Value::String(Arc::new(path)));
     request_dict.insert("query".to_string(), Value::String(Arc::new(query)));

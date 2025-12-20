@@ -1,0 +1,201 @@
+def test_str_pattern():
+    x = "hello"
+    match x:
+        case str(s):
+            result = "matched: " + s
+        case _:
+            result = "no match"
+    assert(result == "matched: hello", "str pattern failed")
+
+def test_str_pattern_no_match():
+    x = 42
+    match x:
+        case str(s):
+            result = "matched string"
+        case int(n):
+            result = "matched int"
+        case _:
+            result = "no match"
+    assert(result == "matched int", "str pattern should not match int")
+
+def test_int_pattern():
+    x = 42
+    match x:
+        case int(n):
+            result = n * 2
+        case _:
+            result = 0
+    assert(result == 84, "int pattern failed")
+
+def test_float_pattern():
+    x = 3.14
+    match x:
+        case float(f):
+            result = "float: " + str(f)
+        case _:
+            result = "no match"
+    assert(result == "float: 3.14", "float pattern failed")
+
+def test_bool_pattern():
+    x = True
+    match x:
+        case bool(b):
+            result = "bool: " + str(b)
+        case _:
+            result = "no match"
+    assert(result == "bool: True", "bool pattern failed")
+
+def test_list_pattern():
+    x = [1, 2, 3]
+    match x:
+        case list(l):
+            result = len(l)
+        case _:
+            result = 0
+    assert(result == 3, "list pattern failed")
+
+def test_tuple_pattern():
+    x = (1, 2)
+    match x:
+        case tuple(t):
+            result = len(t)
+        case _:
+            result = 0
+    assert(result == 2, "tuple pattern failed")
+
+def test_dict_pattern():
+    x = {"a": 1, "b": 2}
+    match x:
+        case dict(d):
+            result = "matched dict"
+        case _:
+            result = "no match"
+    assert(result == "matched dict", "dict pattern failed")
+
+def test_dict_key_pattern():
+    x = {"text": "hello", "color": "red"}
+    match x:
+        case {"text": str(message), "color": str(c)}:
+            result = message + " in " + c
+        case _:
+            result = "no match"
+    assert(result == "hello in red", "dict key pattern failed")
+
+def test_dict_partial_match():
+    x = {"text": "hello", "color": "red", "extra": 42}
+    match x:
+        case {"text": str(message)}:
+            result = message
+        case _:
+            result = "no match"
+    assert(result == "hello", "dict partial match failed")
+
+def test_dict_nested_type():
+    x = {"sleep": 1.5}
+    match x:
+        case {"sleep": float(duration)}:
+            result = duration
+        case _:
+            result = 0.0
+    assert(result == 1.5, "dict nested float pattern failed")
+
+def test_dict_multi_pattern():
+    actions = [
+        {"text": "Hello", "color": "blue"},
+        {"sleep": 2.0},
+        {"sound": "beep.ogg", "format": "ogg"},
+        {"sound": "ding.mp3", "format": "mp3"},
+    ]
+
+    results = []
+    for action in actions:
+        match action:
+            case {"text": str(message), "color": str(c)}:
+                results.append("text:" + message)
+            case {"sleep": float(duration)}:
+                results.append("sleep:" + str(duration))
+            case {"sound": str(url), "format": "ogg"}:
+                results.append("ogg:" + url)
+            case {"sound": _, "format": _}:
+                results.append("unsupported")
+            case _:
+                results.append("unknown")
+
+    assert(results[0] == "text:Hello", "text action failed")
+    assert(results[1] == "sleep:2.0", "sleep action failed")
+    assert(results[2] == "ogg:beep.ogg", "ogg action failed")
+    assert(results[3] == "unsupported", "unsupported format failed")
+
+def test_type_without_binding():
+    x = "hello"
+    match x:
+        case str():
+            result = "is string"
+        case _:
+            result = "not string"
+    assert(result == "is string", "type without binding failed")
+
+def test_nested_list_pattern():
+    x = [1, "hello", 3.14]
+    match x:
+        case [int(a), str(b), float(c)]:
+            result = str(a) + "-" + b + "-" + str(c)
+        case _:
+            result = "no match"
+    assert(result == "1-hello-3.14", "nested list pattern failed")
+
+def test_nested_tuple_pattern():
+    x = ("name", 42)
+    match x:
+        case (str(label), int(value)):
+            result = label + "=" + str(value)
+        case _:
+            result = "no match"
+    assert(result == "name=42", "nested tuple pattern failed")
+
+test_str_pattern()
+print("test_str_pattern passed")
+
+test_str_pattern_no_match()
+print("test_str_pattern_no_match passed")
+
+test_int_pattern()
+print("test_int_pattern passed")
+
+test_float_pattern()
+print("test_float_pattern passed")
+
+test_bool_pattern()
+print("test_bool_pattern passed")
+
+test_list_pattern()
+print("test_list_pattern passed")
+
+test_tuple_pattern()
+print("test_tuple_pattern passed")
+
+test_dict_pattern()
+print("test_dict_pattern passed")
+
+test_dict_key_pattern()
+print("test_dict_key_pattern passed")
+
+test_dict_partial_match()
+print("test_dict_partial_match passed")
+
+test_dict_nested_type()
+print("test_dict_nested_type passed")
+
+test_dict_multi_pattern()
+print("test_dict_multi_pattern passed")
+
+test_type_without_binding()
+print("test_type_without_binding passed")
+
+test_nested_list_pattern()
+print("test_nested_list_pattern passed")
+
+test_nested_tuple_pattern()
+print("test_nested_tuple_pattern passed")
+
+print("\nAll pattern type tests passed!")

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use indexmap::{IndexMap, IndexSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -320,9 +321,6 @@ impl Evaluator {
                 match subject {
                     Value::Dict(d) => {
                         let map = d.read().await;
-                        if map.len() != pairs.len() {
-                            return Ok(false);
-                        }
                         for (key_pat, val_pat) in pairs {
                             let key = self.eval_expr(key_pat, scope.clone()).await?;
                             let key_str = self.value_to_dict_key(&key)?;
@@ -348,8 +346,126 @@ impl Evaluator {
                 self.match_pattern(rhs, subject, scope).await
             }
 
+            ExprP::Call(callee, args) => {
+                let name = match &callee.node {
+                    ExprP::Identifier(ident) => ident.node.ident.as_str(),
+                    _ => {
+                        return Err(BlueprintError::ValueError {
+                            message: "pattern must use a simple name".into(),
+                        })
+                    }
+                };
+
+                if self.is_type_constraint_pattern(name) {
+                    return self.match_type_constraint_pattern(name, args, subject, scope).await;
+                }
+
+                let instance = match subject {
+                    Value::StructInstance(inst) if inst.struct_type.name == name => inst,
+                    _ => return Ok(false),
+                };
+
+                let mut positional_idx = 0;
+                for arg in &args.args {
+                    match &arg.node {
+                        ArgumentP::Named(arg_name, pattern) => {
+                            let field_name = arg_name.node.as_str();
+                            match instance.fields.get(field_name) {
+                                Some(field_val) => {
+                                    if !self.match_pattern(pattern, field_val, scope).await? {
+                                        return Ok(false);
+                                    }
+                                }
+                                None => return Ok(false),
+                            }
+                        }
+                        ArgumentP::Positional(pattern) => {
+                            let field = match instance.struct_type.fields.get(positional_idx) {
+                                Some(f) => f,
+                                None => {
+                                    return Err(BlueprintError::ValueError {
+                                        message: "too many positional patterns in struct match".into(),
+                                    })
+                                }
+                            };
+                            match instance.fields.get(&field.name) {
+                                Some(field_val) => {
+                                    if !self.match_pattern(pattern, field_val, scope).await? {
+                                        return Ok(false);
+                                    }
+                                }
+                                None => return Ok(false),
+                            }
+                            positional_idx += 1;
+                        }
+                        _ => {
+                            return Err(BlueprintError::ValueError {
+                                message: "only positional and keyword arguments supported in struct patterns".into(),
+                            })
+                        }
+                    }
+                }
+
+                Ok(true)
+            }
+
             _ => Err(BlueprintError::ValueError {
                 message: format!("unsupported pattern type"),
+            }),
+        }
+    }
+
+    fn is_type_constraint_pattern(&self, name: &str) -> bool {
+        matches!(
+            name,
+            "str" | "int" | "float" | "bool" | "list" | "tuple" | "dict" | "set"
+        )
+    }
+
+    #[async_recursion::async_recursion]
+    async fn match_type_constraint_pattern(
+        &self,
+        type_name: &str,
+        args: &starlark_syntax::syntax::ast::CallArgsP<starlark_syntax::syntax::ast::AstNoPayload>,
+        subject: &Value,
+        scope: &Arc<Scope>,
+    ) -> Result<bool> {
+        let type_matches = match type_name {
+            "str" => matches!(subject, Value::String(_)),
+            "int" => matches!(subject, Value::Int(_)),
+            "float" => matches!(subject, Value::Float(_)),
+            "bool" => matches!(subject, Value::Bool(_)),
+            "list" => matches!(subject, Value::List(_)),
+            "tuple" => matches!(subject, Value::Tuple(_)),
+            "dict" => matches!(subject, Value::Dict(_)),
+            "set" => matches!(subject, Value::Set(_)),
+            _ => return Ok(false),
+        };
+
+        if !type_matches {
+            return Ok(false);
+        }
+
+        if args.args.is_empty() {
+            return Ok(true);
+        }
+
+        if args.args.len() != 1 {
+            return Err(BlueprintError::ValueError {
+                message: format!(
+                    "type constraint pattern {} expects 0 or 1 argument, got {}",
+                    type_name,
+                    args.args.len()
+                ),
+            });
+        }
+
+        match &args.args[0].node {
+            ArgumentP::Positional(inner_pattern) => {
+                self.match_pattern(inner_pattern, subject, scope).await
+            }
+            _ => Err(BlueprintError::ValueError {
+                message: "type constraint pattern only supports positional argument".into(),
             }),
         }
     }
@@ -678,7 +794,7 @@ impl Evaluator {
                 }
 
                 if let Some(module_funcs) = self.modules.get(name) {
-                    let mut dict = HashMap::new();
+                    let mut dict = IndexMap::new();
                     for (func_name, func) in module_funcs {
                         dict.insert(func_name.clone(), Value::NativeFunction(func.clone()));
                     }
@@ -707,7 +823,7 @@ impl Evaluator {
             }
 
             ExprP::Dict(pairs) => {
-                let mut map = HashMap::new();
+                let mut map = IndexMap::new();
                 for (key, value) in pairs {
                     let k = self.eval_expr(key, scope.clone()).await?;
                     let k_str = self.value_to_dict_key(&k)?;
@@ -715,6 +831,15 @@ impl Evaluator {
                     map.insert(k_str, v);
                 }
                 Ok(Value::Dict(Arc::new(tokio::sync::RwLock::new(map))))
+            }
+
+            ExprP::Set(items) => {
+                let mut set = IndexSet::new();
+                for item in items {
+                    let v = self.eval_expr(item, scope.clone()).await?;
+                    set.insert(v);
+                }
+                Ok(Value::Set(Arc::new(tokio::sync::RwLock::new(set))))
             }
 
             ExprP::Call(callee, args) => {
@@ -849,6 +974,11 @@ impl Evaluator {
 
             ExprP::ListComprehension(body, first, clauses) => {
                 self.eval_list_comprehension(body, first, clauses, scope)
+                    .await
+            }
+
+            ExprP::SetComprehension(body, first, clauses) => {
+                self.eval_set_comprehension(body, first, clauses, scope)
                     .await
             }
 
@@ -1211,6 +1341,10 @@ impl Evaluator {
                 Ok(Value::Bool(s.contains(&needle)))
             }
             Value::Tuple(t) => Ok(Value::Bool(t.iter().any(|item| *item == left))),
+            Value::Set(s) => {
+                let set = s.read().await;
+                Ok(Value::Bool(set.contains(&left)))
+            }
             _ => Err(BlueprintError::TypeError {
                 expected: "iterable".into(),
                 actual: right.type_name().into(),
@@ -1537,6 +1671,10 @@ impl Evaluator {
             Value::Dict(d) => {
                 let map = d.read().await;
                 Ok(map.keys().map(|k| Value::String(Arc::new(k.clone()))).collect())
+            }
+            Value::Set(s) => {
+                let set = s.read().await;
+                Ok(set.iter().cloned().collect())
             }
             _ => Err(BlueprintError::TypeError {
                 expected: "iterable".into(),
@@ -1892,7 +2030,7 @@ impl Evaluator {
                     arg_idx = args.len();
                 }
                 blueprint_core::ParameterKind::Kwargs => {
-                    let remaining = std::mem::take(&mut kwargs);
+                    let remaining: IndexMap<String, Value> = std::mem::take(&mut kwargs).into_iter().collect();
                     scope
                         .define(&param.name, Value::Dict(Arc::new(tokio::sync::RwLock::new(remaining))))
                         .await;
@@ -2002,7 +2140,7 @@ impl Evaluator {
                 Ok(Value::List(Arc::new(tokio::sync::RwLock::new(values))))
             }
             ExprP::Dict(pairs) => {
-                let mut map = HashMap::new();
+                let mut map = IndexMap::new();
                 for (k, v) in pairs {
                     let key = self.eval_const_expr(k)?;
                     let key_str = self.value_to_dict_key(&key)?;
@@ -2050,6 +2188,20 @@ impl Evaluator {
         self.eval_comprehension_clauses(body, first, clauses, scope, &mut results)
             .await?;
         Ok(Value::List(Arc::new(tokio::sync::RwLock::new(results))))
+    }
+
+    async fn eval_set_comprehension(
+        &self,
+        body: &AstExpr,
+        first: &ForClause,
+        clauses: &[Clause],
+        scope: Arc<Scope>,
+    ) -> Result<Value> {
+        let mut results = Vec::new();
+        self.eval_comprehension_clauses(body, first, clauses, scope, &mut results)
+            .await?;
+        let set: IndexSet<Value> = results.into_iter().collect();
+        Ok(Value::Set(Arc::new(tokio::sync::RwLock::new(set))))
     }
 
     #[async_recursion::async_recursion]
@@ -2120,7 +2272,7 @@ impl Evaluator {
         clauses: &[Clause],
         scope: Arc<Scope>,
     ) -> Result<Value> {
-        let mut results = HashMap::new();
+        let mut results = IndexMap::new();
         self.eval_dict_comprehension_clauses(key_expr, val_expr, first, clauses, scope, &mut results)
             .await?;
         Ok(Value::Dict(Arc::new(tokio::sync::RwLock::new(results))))
@@ -2134,7 +2286,7 @@ impl Evaluator {
         for_clause: &ForClause,
         remaining: &[Clause],
         scope: Arc<Scope>,
-        results: &mut HashMap<String, Value>,
+        results: &mut IndexMap<String, Value>,
     ) -> Result<()> {
         let ForClause { var, over, .. } = for_clause;
         let iterable = self.eval_expr(over, scope.clone()).await?;
@@ -2256,7 +2408,7 @@ impl Evaluator {
                         })
                     })
             }
-            ExprP::Tuple(items) | ExprP::List(items) => {
+            ExprP::Tuple(items) | ExprP::List(items) | ExprP::Set(items) => {
                 items.iter().any(|i| Self::expr_contains_yield(i))
             }
             ExprP::Dict(pairs) => pairs
@@ -2281,6 +2433,9 @@ impl Evaluator {
                 Self::expr_contains_yield(&kv.0)
                     || Self::expr_contains_yield(&kv.1)
                     || Self::for_clause_contains_yield(first, clauses)
+            }
+            ExprP::SetComprehension(body, first, clauses) => {
+                Self::expr_contains_yield(body) || Self::for_clause_contains_yield(first, clauses)
             }
             ExprP::Lambda(lambda) => Self::expr_contains_yield(&lambda.body),
             _ => false,

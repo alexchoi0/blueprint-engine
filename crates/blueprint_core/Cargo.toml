@@ -9,3 +9,4 @@ description = "Core types and errors for Blueprint3"
 thiserror.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 serde = { workspace = true }
+indexmap = "2"

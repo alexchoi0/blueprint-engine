@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use indexmap::{IndexMap, IndexSet};
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 
@@ -16,6 +17,7 @@ pub fn register(evaluator: &mut Evaluator) {
     evaluator.register_native(NativeFunction::new("list", to_list));
     evaluator.register_native(NativeFunction::new("dict", to_dict));
     evaluator.register_native(NativeFunction::new("tuple", to_tuple));
+    evaluator.register_native(NativeFunction::new("set", to_set));
     evaluator.register_native(NativeFunction::new("iter", to_iter));
     evaluator.register_native(NativeFunction::new("range", range));
     evaluator.register_native(NativeFunction::new("map", map_fn));
@@ -51,9 +53,10 @@ async fn len(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value>
         Value::List(l) => l.read().await.len() as i64,
         Value::Dict(d) => d.read().await.len() as i64,
         Value::Tuple(t) => t.len() as i64,
+        Value::Set(s) => s.read().await.len() as i64,
         other => {
             return Err(BlueprintError::TypeError {
-                expected: "string, list, dict, or tuple".into(),
+                expected: "string, list, dict, tuple, or set".into(),
                 actual: other.type_name().into(),
             })
         }
@@ -157,6 +160,7 @@ async fn to_list(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
         Value::Tuple(t) => t.as_ref().clone(),
         Value::String(s) => s.chars().map(|c| Value::String(Arc::new(c.to_string()))).collect(),
         Value::Dict(d) => d.read().await.keys().map(|k| Value::String(Arc::new(k.clone()))).collect(),
+        Value::Set(s) => s.read().await.iter().cloned().collect(),
         Value::Generator(gen) => {
             let mut items = Vec::new();
             while let Some(item) = gen.next().await {
@@ -184,7 +188,7 @@ async fn to_list(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
 
 async fn to_dict(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> {
     if args.is_empty() {
-        return Ok(Value::Dict(Arc::new(RwLock::new(HashMap::new()))));
+        return Ok(Value::Dict(Arc::new(RwLock::new(IndexMap::new()))));
     }
 
     if args.len() != 1 {
@@ -197,7 +201,7 @@ async fn to_dict(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
         Value::Dict(d) => Ok(Value::Dict(Arc::new(RwLock::new(d.read().await.clone())))),
         Value::List(l) => {
             let items = l.read().await;
-            let mut map = HashMap::new();
+            let mut map = IndexMap::new();
             for item in items.iter() {
                 match item {
                     Value::List(pair_list) => {
@@ -265,6 +269,48 @@ async fn to_tuple(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<V
     };
 
     Ok(Value::Tuple(Arc::new(items)))
+}
+
+async fn to_set(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> {
+    if args.is_empty() {
+        return Ok(Value::Set(Arc::new(RwLock::new(IndexSet::new()))));
+    }
+
+    if args.len() != 1 {
+        return Err(BlueprintError::ArgumentError {
+            message: format!("set() takes at most 1 argument ({} given)", args.len()),
+        });
+    }
+
+    let items: IndexSet<Value> = match &args[0] {
+        Value::Set(s) => s.read().await.clone(),
+        Value::List(l) => l.read().await.iter().cloned().collect(),
+        Value::Tuple(t) => t.iter().cloned().collect(),
+        Value::String(s) => s.chars().map(|c| Value::String(Arc::new(c.to_string()))).collect(),
+        Value::Dict(d) => d.read().await.keys().map(|k| Value::String(Arc::new(k.clone()))).collect(),
+        Value::Generator(gen) => {
+            let mut items = IndexSet::new();
+            while let Some(item) = gen.next().await {
+                items.insert(item);
+            }
+            items
+        }
+        Value::Iterator(iter) => {
+            let mut items = IndexSet::new();
+            while let Some(item) = iter.next().await {
+                items.insert(item);
+            }
+            items
+        }
+        other => {
+            return Err(BlueprintError::TypeError {
+                expected: "iterable".into(),
+                actual: other.type_name().into(),
+            })
+        }
+    };
+
+    Ok(Value::Set(Arc::new(RwLock::new(items))))
 }
 
 async fn to_iter(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> {

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use indexmap::IndexMap;
 use std::sync::Arc;
 
 use blueprint_core::{BlueprintError, NativeFunction, Result, Value};
@@ -136,7 +137,7 @@ fn json_to_value(json: serde_json::Value) -> Result<Value> {
             Ok(Value::List(Arc::new(RwLock::new(items))))
         }
         serde_json::Value::Object(obj) => {
-            let mut map = HashMap::with_capacity(obj.len());
+            let mut map = IndexMap::with_capacity(obj.len());
             for (k, v) in obj {
                 map.insert(k, json_to_value(v)?);
             }

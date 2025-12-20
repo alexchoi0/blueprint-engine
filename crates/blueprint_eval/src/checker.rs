@@ -25,7 +25,7 @@ impl Checker {
         let mut builtins = HashSet::new();
         for name in [
             "True", "False", "None",
-            "print", "len", "range", "str", "int", "float", "bool", "list", "dict", "tuple",
+            "print", "len", "range", "str", "int", "float", "bool", "list", "dict", "tuple", "set",
             "type", "isinstance", "hasattr", "getattr", "setattr",
             "min", "max", "sum", "abs", "round", "sorted", "reversed", "enumerate", "zip", "map", "filter",
             "any", "all", "input", "open", "exit",
@@ -463,6 +463,44 @@ impl Checker {
             ExprP::Op(lhs, starlark_syntax::syntax::ast::BinOp::BitOr, rhs) => {
                 self.check_pattern(lhs, scope);
                 self.check_pattern(rhs, scope);
+            }
+
+            ExprP::Call(callee, args) => {
+                match &callee.node {
+                    ExprP::Identifier(ident) => {
+                        let name = ident.node.ident.as_str();
+                        let is_type_constraint = matches!(
+                            name,
+                            "str" | "int" | "float" | "bool" | "list" | "tuple" | "dict" | "set"
+                        );
+                        if !is_type_constraint && !scope.is_defined(name) {
+                            self.errors.push(CheckerError {
+                                message: format!("undefined name in pattern: {}", name),
+                                location: self.get_location(&callee.span),
+                            });
+                        }
+                    }
+                    _ => {
+                        self.errors.push(CheckerError {
+                            message: "struct pattern must use a simple name".to_string(),
+                            location: self.get_location(&callee.span),
+                        });
+                    }
+                }
+
+                for arg in &args.args {
+                    match &arg.node {
+                        ArgumentP::Named(_, pat) | ArgumentP::Positional(pat) => {
+                            self.check_pattern(pat, scope);
+                        }
+                        _ => {
+                            self.errors.push(CheckerError {
+                                message: "only positional and keyword arguments allowed in struct patterns".to_string(),
+                                location: self.get_location(&arg.span),
+                            });
+                        }
+                    }
+                }
             }
 
             _ => {

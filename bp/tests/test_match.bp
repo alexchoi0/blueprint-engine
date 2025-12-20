@@ -138,6 +138,101 @@ def test_match_no_match():
             result = "b"
     assert(result == "default", "no match should not change result")
 
+struct Point:
+    x: int
+    y: int
+
+def test_match_struct_basic():
+    p = Point(x=10, y=20)
+    match p:
+        case Point(x=a, y=b):
+            result = a + b
+        case _:
+            result = 0
+    assert(result == 30, "struct pattern basic failed")
+
+def test_match_struct_nested():
+    struct Line:
+        start: tuple
+        end: tuple
+
+    line = Line(start=(0, 0), end=(10, 20))
+    match line:
+        case Line(start=(x1, y1), end=(x2, y2)):
+            result = x2 - x1 + y2 - y1
+        case _:
+            result = 0
+    assert(result == 30, "struct pattern nested failed")
+
+def test_match_struct_empty():
+    p = Point(x=5, y=10)
+    match p:
+        case Point():
+            result = "is point"
+        case _:
+            result = "not point"
+    assert(result == "is point", "empty struct pattern failed")
+
+def test_match_struct_literal():
+    p = Point(x=0, y=0)
+    match p:
+        case Point(x=0, y=0):
+            result = "origin"
+        case Point(x=0):
+            result = "on y-axis"
+        case Point(y=0):
+            result = "on x-axis"
+        case _:
+            result = "other"
+    assert(result == "origin", "struct pattern literal failed")
+
+def test_match_struct_or():
+    struct Quit:
+        code: int
+
+    struct Exit:
+        code: int
+
+    event = Quit(code=0)
+    match event:
+        case Quit() | Exit():
+            result = "should quit"
+        case _:
+            result = "continue"
+    assert(result == "should quit", "struct or pattern failed")
+
+def test_match_struct_guard():
+    p = Point(x=5, y=10)
+    match p:
+        case Point(x=x, y=y) if x > 0 and y > 0:
+            result = "first quadrant"
+        case _:
+            result = "other"
+    assert(result == "first quadrant", "struct pattern guard failed")
+
+def test_match_struct_wrong_type():
+    struct Circle:
+        radius: int
+
+    c = Circle(radius=5)
+    match c:
+        case Point():
+            result = "point"
+        case Circle():
+            result = "circle"
+        case _:
+            result = "other"
+    assert(result == "circle", "struct wrong type failed")
+
+def test_match_struct_positional():
+    p = Point(x=3, y=7)
+    match p:
+        case Point(a, b):
+            result = a * b
+        case _:
+            result = 0
+    assert(result == 21, "struct positional pattern failed")
+
 test_match_literals()
 print("test_match_literals passed")
 
@@ -182,5 +277,29 @@ print("test_match_guard_false passed")
 
 test_match_no_match()
 print("test_match_no_match passed")
+
+test_match_struct_basic()
+print("test_match_struct_basic passed")
+
+test_match_struct_nested()
+print("test_match_struct_nested passed")
+
+test_match_struct_empty()
+print("test_match_struct_empty passed")
+
+test_match_struct_literal()
+print("test_match_struct_literal passed")
+
+test_match_struct_or()
+print("test_match_struct_or passed")
+
+test_match_struct_guard()
+print("test_match_struct_guard passed")
+
+test_match_struct_wrong_type()
+print("test_match_struct_wrong_type passed")
+
+test_match_struct_positional()
+print("test_match_struct_positional passed")
 
 print("\nAll match tests passed!")

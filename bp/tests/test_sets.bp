@@ -1,0 +1,181 @@
+print("=== Set Literal Tests ===")
+
+s = {1, 2, 3}
+print(s)
+t = type(s)
+assert(t == "set")
+
+s2 = {"a", "b", "c"}
+print(s2)
+
+s3 = {1, 2, 2, 3, 3, 3}
+print("duplicates removed:", s3)
+assert(len(s3) == 3)
+
+print("=== Set Comprehension Tests ===")
+
+s4 = {x * 2 for x in [1, 2, 3, 4, 5]}
+print("comprehension:", s4)
+assert(len(s4) == 5)
+
+s5 = {x for x in [1, 2, 2, 3, 3, 3]}
+print("comprehension with duplicates:", s5)
+assert(len(s5) == 3)
+
+s6 = {x for x in range(10) if x % 2 == 0}
+print("filtered comprehension:", s6)
+assert(len(s6) == 5)
+
+print("=== Empty Dict vs Set ===")
+d = {}
+print("empty dict:", d)
+t = type(d)
+assert(t == "dict")
+
+print("=== set() builtin ===")
+
+empty_set = set()
+print("empty set:", empty_set)
+assert(len(empty_set) == 0)
+
+set_from_list = set([1, 2, 2, 3, 3, 3])
+print("from list:", set_from_list)
+assert(len(set_from_list) == 3)
+
+set_from_tuple = set((4, 5, 5, 6))
+print("from tuple:", set_from_tuple)
+assert(len(set_from_tuple) == 3)
+
+set_from_string = set("hello")
+print("from string:", set_from_string)
+
+set_from_set = set({7, 8, 9})
+print("from set:", set_from_set)
+
+list_from_set = list({10, 20, 30})
+print("list from set:", list_from_set)
+assert(len(list_from_set) == 3)
+
+print("=== Set Methods ===")
+
+s = {1, 2, 3}
+s.add(4)
+print("after add(4):", s)
+assert(4 in s)
+
+s.remove(2)
+print("after remove(2):", s)
+assert(2 not in s)
+
+s.discard(10)
+print("after discard(10) (no error):", s)
+
+s.discard(3)
+print("after discard(3):", s)
+assert(3 not in s)
+
+s2 = {5, 6, 7}
+s.update(s2)
+print("after update({5,6,7}):", s)
+assert(5 in s)
+assert(6 in s)
+assert(7 in s)
+
+item = s.pop()
+print("popped:", item)
+
+s3 = s.copy()
+print("copy:", s3)
+
+s.clear()
+print("after clear():", s)
+assert(len(s) == 0)
+
+print("=== Set Operations ===")
+
+a = {1, 2, 3, 4}
+b = {3, 4, 5, 6}
+
+union_result = a.union(b)
+print("union:", union_result)
+assert(1 in union_result)
+assert(6 in union_result)
+
+intersection_result = a.intersection(b)
+print("intersection:", intersection_result)
+assert(3 in intersection_result)
+assert(4 in intersection_result)
+assert(1 not in intersection_result)
+
+difference_result = a.difference(b)
+print("difference:", difference_result)
+assert(1 in difference_result)
+assert(2 in difference_result)
+assert(3 not in difference_result)
+
+sym_diff_result = a.symmetric_difference(b)
+print("symmetric_difference:", sym_diff_result)
+assert(1 in sym_diff_result)
+assert(6 in sym_diff_result)
+assert(3 not in sym_diff_result)
+
+print("=== Subset/Superset Tests ===")
+
+small = {1, 2}
+big = {1, 2, 3, 4, 5}
+
+assert(small.issubset(big) == True)
+assert(big.issubset(small) == False)
+assert(big.issuperset(small) == True)
+assert(small.issuperset(big) == False)
+
+disjoint_a = {1, 2}
+disjoint_b = {3, 4}
+overlap = {2, 3}
+
+assert(disjoint_a.isdisjoint(disjoint_b) == True)
+assert(disjoint_a.isdisjoint(overlap) == False)
+
+print("=== Membership and Iteration ===")
+
+s = {1, 2, 3}
+assert(1 in s)
+assert(5 not in s)
+
+items = []
+for x in s:
+    items.append(x)
+print("iterated items:", items)
+assert(len(items) == 3)
+
+print("=== Set Operations with Lists ===")
+
+s = {1, 2, 3}
+list_items = [3, 4, 5]
+union_with_list = s.union(list_items)
+print("union with list:", union_with_list)
+assert(4 in union_with_list)
+
+intersection_with_list = s.intersection(list_items)
+print("intersection with list:", intersection_with_list)
+assert(3 in intersection_with_list)
+
+print("=== Pattern Matching ===")
+
+def match_type(value):
+    match value:
+        case set(s):
+            return "set"
+        case list(l):
+            return "list"
+        case _:
+            return "other"
+
+r1 = match_type({1, 2, 3})
+r2 = match_type([1, 2, 3])
+r3 = match_type("hello")
+assert(r1 == "set")
+assert(r2 == "list")
+assert(r3 == "other")
+
+print("=== All tests passed! ===")
