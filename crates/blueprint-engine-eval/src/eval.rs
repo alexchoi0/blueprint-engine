@@ -12,8 +12,8 @@ use blueprint_engine_parser::{
     AstExpr, AstParameter, AstStmt, AssignOp, AssignTargetP, Clause,
     ExprP, ForClause, ParameterP, ParsedModule, StmtP,
 };
-use starlark_syntax::codemap::CodeMap;
-use starlark_syntax::syntax::ast::{AstLiteral, AstAssignTarget, ArgumentP, BinOp};
+use blueprint_starlark_syntax::codemap::CodeMap;
+use blueprint_starlark_syntax::syntax::ast::{AstLiteral, AstAssignTarget, ArgumentP, BinOp};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::scope::{Scope, ScopeKind};
@@ -222,7 +222,7 @@ impl Evaluator {
 
     async fn eval_match(
         &self,
-        match_stmt: &starlark_syntax::syntax::ast::MatchP<starlark_syntax::syntax::ast::AstNoPayload>,
+        match_stmt: &blueprint_starlark_syntax::syntax::ast::MatchP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let subject = self.eval_expr(&match_stmt.subject, scope.clone()).await?;
@@ -426,7 +426,7 @@ impl Evaluator {
     async fn match_type_constraint_pattern(
         &self,
         type_name: &str,
-        args: &starlark_syntax::syntax::ast::CallArgsP<starlark_syntax::syntax::ast::AstNoPayload>,
+        args: &blueprint_starlark_syntax::syntax::ast::CallArgsP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
         subject: &Value,
         scope: &Arc<Scope>,
     ) -> Result<bool> {
@@ -484,7 +484,7 @@ impl Evaluator {
 
     async fn eval_struct_def(
         &self,
-        struct_def: &starlark_syntax::syntax::ast::StructP<starlark_syntax::syntax::ast::AstNoPayload>,
+        struct_def: &blueprint_starlark_syntax::syntax::ast::StructP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let struct_name = struct_def.name.node.ident.clone();
@@ -518,7 +518,7 @@ impl Evaluator {
 
     fn convert_type_expr(
         &self,
-        type_expr: &starlark_syntax::syntax::ast::AstTypeExprP<starlark_syntax::syntax::ast::AstNoPayload>,
+        type_expr: &blueprint_starlark_syntax::syntax::ast::AstTypeExprP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
     ) -> Result<TypeAnnotation> {
         self.convert_expr_to_type_annotation(&type_expr.node.expr)
     }
@@ -553,7 +553,7 @@ impl Evaluator {
 
                 Ok(TypeAnnotation::Parameterized(base_name, params))
             }
-            ExprP::Op(lhs, starlark_syntax::syntax::ast::BinOp::BitOr, rhs) => {
+            ExprP::Op(lhs, blueprint_starlark_syntax::syntax::ast::BinOp::BitOr, rhs) => {
                 if let ExprP::Identifier(ident) = &rhs.node {
                     if ident.node.ident == "None" {
                         let inner = self.convert_expr_to_type_annotation(lhs)?;
@@ -572,7 +572,7 @@ impl Evaluator {
 
     async fn eval_load(
         &self,
-        load: &starlark_syntax::syntax::ast::LoadP<starlark_syntax::syntax::ast::AstNoPayload>,
+        load: &blueprint_starlark_syntax::syntax::ast::LoadP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let module_path = &load.module.node;
@@ -623,7 +623,7 @@ impl Evaluator {
 
     async fn bind_load_args(
         &self,
-        load: &starlark_syntax::syntax::ast::LoadP<starlark_syntax::syntax::ast::AstNoPayload>,
+        load: &blueprint_starlark_syntax::syntax::ast::LoadP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
         exports: &HashMap<String, Value>,
         scope: Arc<Scope>,
         module_path: &str,
@@ -1028,7 +1028,7 @@ impl Evaluator {
     }
 
     fn eval_literal(&self, lit: &AstLiteral) -> Result<Value> {
-        use starlark_syntax::lexer::TokenInt;
+        use blueprint_starlark_syntax::lexer::TokenInt;
         match lit {
             AstLiteral::Int(i) => {
                 let val = match &i.node {
@@ -2060,7 +2060,7 @@ impl Evaluator {
 
     fn create_user_function(
         &self,
-        def: &starlark_syntax::syntax::ast::DefP<starlark_syntax::syntax::ast::AstNoPayload>,
+        def: &blueprint_starlark_syntax::syntax::ast::DefP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let params = self.convert_params(&def.params)?;
@@ -2077,7 +2077,7 @@ impl Evaluator {
 
     fn create_lambda_function(
         &self,
-        lambda: &starlark_syntax::syntax::ast::LambdaP<starlark_syntax::syntax::ast::AstNoPayload>,
+        lambda: &blueprint_starlark_syntax::syntax::ast::LambdaP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let params = self.convert_params(&lambda.params)?;
@@ -2376,7 +2376,7 @@ impl Evaluator {
         Self::stmt_contains_yield(&stmt.node)
     }
 
-    fn stmt_contains_yield(stmt: &StmtP<starlark_syntax::syntax::ast::AstNoPayload>) -> bool {
+    fn stmt_contains_yield(stmt: &StmtP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>) -> bool {
         match stmt {
             StmtP::Yield(_) => true,
             StmtP::Statements(stmts) => stmts.iter().any(|s| Self::contains_yield(s)),
@@ -2454,7 +2454,7 @@ impl Evaluator {
         crate::natives::register_all(self);
     }
 
-    fn get_span_location(&self, span: &starlark_syntax::codemap::Span) -> (usize, usize) {
+    fn get_span_location(&self, span: &blueprint_starlark_syntax::codemap::Span) -> (usize, usize) {
         if let Some(ref codemap) = self.codemap {
             let full_span = codemap.full_span();
             if span.begin() <= full_span.end() && span.end() <= full_span.end() {

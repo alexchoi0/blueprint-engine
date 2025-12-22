@@ -5,8 +5,8 @@ use blueprint_engine_core::SourceLocation;
 use blueprint_engine_parser::{
     AstExpr, AstParameter, AstStmt, AssignTargetP, Clause, ExprP, ForClause, ParameterP, StmtP,
 };
-use starlark_syntax::codemap::CodeMap;
-use starlark_syntax::syntax::ast::ArgumentP;
+use blueprint_starlark_syntax::codemap::CodeMap;
+use blueprint_starlark_syntax::syntax::ast::ArgumentP;
 
 pub struct CheckerError {
     pub message: String,
@@ -353,7 +353,7 @@ impl Checker {
         }
     }
 
-    fn define_target(&mut self, target: &starlark_syntax::syntax::ast::AstAssignTarget, scope: &mut CheckScope) {
+    fn define_target(&mut self, target: &blueprint_starlark_syntax::syntax::ast::AstAssignTarget, scope: &mut CheckScope) {
         match &target.node {
             AssignTargetP::Identifier(ident) => {
                 let name = &ident.node.ident;
@@ -385,7 +385,7 @@ impl Checker {
         }
     }
 
-    fn check_assign_target(&mut self, target: &starlark_syntax::syntax::ast::AstAssignTarget, scope: &CheckScope) {
+    fn check_assign_target(&mut self, target: &blueprint_starlark_syntax::syntax::ast::AstAssignTarget, scope: &CheckScope) {
         match &target.node {
             AssignTargetP::Identifier(ident) => {
                 let name = ident.node.ident.as_str();
@@ -460,7 +460,7 @@ impl Checker {
                 }
             }
 
-            ExprP::Op(lhs, starlark_syntax::syntax::ast::BinOp::BitOr, rhs) => {
+            ExprP::Op(lhs, blueprint_starlark_syntax::syntax::ast::BinOp::BitOr, rhs) => {
                 self.check_pattern(lhs, scope);
                 self.check_pattern(rhs, scope);
             }
@@ -576,7 +576,7 @@ impl Checker {
         Err(format!("module '{}' not found", module_path))
     }
 
-    fn get_location(&self, span: &starlark_syntax::codemap::Span) -> SourceLocation {
+    fn get_location(&self, span: &blueprint_starlark_syntax::codemap::Span) -> SourceLocation {
         if let Some(ref codemap) = self.codemap {
             blueprint_engine_parser::get_location(codemap, *span)
         } else {

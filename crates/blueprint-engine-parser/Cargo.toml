@@ -7,5 +7,5 @@ description = "Starlark parser for Blueprint3"
 
 [dependencies]
 blueprint-engine-core.workspace = true
-starlark.workspace = true
-starlark_syntax.workspace = true
+blueprint-starlark.workspace = true
+blueprint-starlark-syntax.workspace = true

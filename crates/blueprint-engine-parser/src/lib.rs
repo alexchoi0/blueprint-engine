@@ -1,15 +1,15 @@
 use blueprint_engine_core::{BlueprintError, Result, SourceLocation, Span};
-use starlark_syntax::codemap::CodeMap;
-use starlark_syntax::dialect::{Dialect, DialectTypes};
-use starlark_syntax::syntax::module::AstModuleFields;
-use starlark_syntax::syntax::AstModule;
+use blueprint_starlark_syntax::codemap::CodeMap;
+use blueprint_starlark_syntax::dialect::{Dialect, DialectTypes};
+use blueprint_starlark_syntax::syntax::module::AstModuleFields;
+use blueprint_starlark_syntax::syntax::AstModule;
 
-pub use starlark_syntax::syntax::ast::{
+pub use blueprint_starlark_syntax::syntax::ast::{
     AstArgument, AstExpr, AstLiteral, AstParameter, AstPayload, AstStmt, AssignOp,
     AssignTarget, AssignTargetP, Clause, Expr, ExprP, ForClause, Parameter, ParameterP, Stmt,
     StmtP,
 };
-pub use starlark_syntax::syntax::def::{DefParam, DefParams};
+pub use blueprint_starlark_syntax::syntax::def::{DefParam, DefParams};
 
 pub struct ParsedModule {
     pub codemap: CodeMap,
@@ -52,7 +52,7 @@ pub fn parse(filename: &str, content: &str) -> Result<ParsedModule> {
     }
 }
 
-pub fn get_location(codemap: &CodeMap, span: starlark_syntax::codemap::Span) -> SourceLocation {
+pub fn get_location(codemap: &CodeMap, span: blueprint_starlark_syntax::codemap::Span) -> SourceLocation {
     let file_span = codemap.file_span(span);
     let loc = file_span.resolve();
     SourceLocation {

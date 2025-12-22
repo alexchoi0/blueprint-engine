@@ -8,7 +8,7 @@ description = "Async evaluator for Blueprint3"
 [dependencies]
 blueprint-engine-core.workspace = true
 blueprint-engine-parser.workspace = true
-starlark_syntax.workspace = true
+blueprint-starlark-syntax.workspace = true
 tokio = { workspace = true, features = ["sync", "rt-multi-thread", "fs", "process", "io-std", "io-util", "time"] }
 reqwest = { workspace = true }
 glob.workspace = true
