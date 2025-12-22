@@ -31,6 +31,6 @@ regex = "1.10"
 once_cell = "1.19"
 axum = "0.7"
 
-blueprint-engine-core = { path = "crates/blueprint-engine-core" }
-blueprint-engine-parser = { path = "crates/blueprint-engine-parser" }
-blueprint-engine-eval = { path = "crates/blueprint-engine-eval" }
+blueprint-engine-core = { version = "0.1.0", path = "crates/blueprint-engine-core" }
+blueprint-engine-parser = { version = "0.1.0", path = "crates/blueprint-engine-parser" }
+blueprint-engine-eval = { version = "0.1.0", path = "crates/blueprint-engine-eval" }
