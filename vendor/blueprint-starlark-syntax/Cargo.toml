@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "blueprint-starlark-syntax"
-version = "0.13.1"
+version = "0.13.2"
 authors = [
     "Damien Martin-Guillerez <dmarting@google.com>",
     "Facebook",

@@ -1,6 +1,6 @@
 {
   "git": {
-    "sha1": "207c83561e277a2ac912de3fe92553a62c815cae"
+    "sha1": "fd8cc6880d4c8fb234870d4f3df339b218f032a9"
   },
   "path_in_vcs": "starlark_syntax"
 }

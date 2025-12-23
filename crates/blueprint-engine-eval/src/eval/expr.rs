@@ -287,6 +287,10 @@ impl Evaluator {
             }
             AstLiteral::Float(f) => Ok(Value::Float(f.node)),
             AstLiteral::String(s) => Ok(Value::String(Arc::new(s.node.clone()))),
+            AstLiteral::ByteString(b) => {
+                let s: String = b.node.iter().map(|&c| c as char).collect();
+                Ok(Value::String(Arc::new(s)))
+            }
             AstLiteral::Ellipsis => Ok(Value::None),
         }
     }

@@ -226,6 +226,7 @@ impl<'a, P: AstPayload> TypeExprUnpackP<'a, P> {
             }
             ExprP::Literal(AstLiteral::Int(_)) => err("int"),
             ExprP::Literal(AstLiteral::Float(_)) => err("float"),
+            ExprP::Literal(AstLiteral::ByteString(_)) => err("byte string"),
             ExprP::Literal(AstLiteral::Ellipsis) => Ok(Spanned {
                 span,
                 node: TypeExprUnpackP::Ellipsis,

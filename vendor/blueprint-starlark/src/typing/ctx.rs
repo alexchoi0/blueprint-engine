@@ -437,6 +437,7 @@ impl TypingContext<'_> {
                 AstLiteral::Int(_) => Ok(Ty::int()),
                 AstLiteral::Float(_) => Ok(Ty::float()),
                 AstLiteral::String(_) => Ok(Ty::string()),
+                AstLiteral::ByteString(_) => Ok(Ty::string()),
                 AstLiteral::Ellipsis => Ok(Ty::any()),
             },
             ExprP::Not(x) => {

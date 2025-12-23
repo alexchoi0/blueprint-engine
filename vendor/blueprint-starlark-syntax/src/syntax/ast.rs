@@ -87,6 +87,7 @@ pub type AstAssignIdent = AstAssignIdentP<AstNoPayload>;
 pub type AstIdent = AstIdentP<AstNoPayload>;
 pub type AstArgument = AstArgumentP<AstNoPayload>;
 pub type AstString = Spanned<String>;
+pub type AstByteString = Spanned<Vec<u8>>;
 pub type AstParameter = AstParameterP<AstNoPayload>;
 pub type AstInt = Spanned<TokenInt>;
 pub type AstFloat = Spanned<f64>;
@@ -147,6 +148,7 @@ pub enum AstLiteral {
     Int(AstInt),
     Float(AstFloat),
     String(AstString),
+    ByteString(AstByteString),
     Ellipsis,
 }
 
@@ -565,6 +567,17 @@ impl Display for AstLiteral {
             AstLiteral::Int(i) => write!(f, "{}", &i.node),
             AstLiteral::Float(n) => write!(f, "{}", &n.node),
             AstLiteral::String(s) => fmt_string_literal(f, &s.node),
+            AstLiteral::ByteString(b) => {
+                f.write_str("b\"")?;
+                for byte in &b.node {
+                    if *byte >= 32 && *byte < 127 && *byte != b'"' && *byte != b'\\' {
+                        write!(f, "{}", *byte as char)?;
+                    } else {
+                        write!(f, "\\x{:02x}", byte)?;
+                    }
+                }
+                f.write_str("\"")
+            }
             AstLiteral::Ellipsis => f.write_str("..."),
         }
     }

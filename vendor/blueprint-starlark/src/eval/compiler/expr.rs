@@ -1051,6 +1051,11 @@ impl AstLiteralCompile for AstLiteral {
             AstLiteral::Int(i) => heap.alloc(StarlarkInt::from(i.node.clone())),
             AstLiteral::Float(f) => heap.alloc(f.node),
             AstLiteral::String(x) => heap.alloc(x.node.as_str()),
+            AstLiteral::ByteString(b) => {
+                // Convert bytes to a string where each byte is a character
+                let s: String = b.node.iter().map(|&c| c as char).collect();
+                heap.alloc(s.as_str())
+            }
             AstLiteral::Ellipsis => heap.alloc(Ellipsis),
         }
     }

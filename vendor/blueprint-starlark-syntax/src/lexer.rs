@@ -549,6 +549,25 @@ impl<'a> Lexer<'a> {
                                 Token::FString(_) => {
                                     unreachable!("The lexer does not produce FString")
                                 }
+                                Token::RawByteDoubleQuote => {
+                                    let raw = self.lexer.span().len() == 3;
+                                    self.parse_double_quoted_string(raw).map(|lex| {
+                                        map_lexeme_t(lex, |(s, _offset)| {
+                                            Token::ByteString(s.into_bytes())
+                                        })
+                                    })
+                                }
+                                Token::RawByteSingleQuote => {
+                                    let raw = self.lexer.span().len() == 3;
+                                    self.parse_single_quoted_string(raw).map(|lex| {
+                                        map_lexeme_t(lex, |(s, _offset)| {
+                                            Token::ByteString(s.into_bytes())
+                                        })
+                                    })
+                                }
+                                Token::ByteString(_) => {
+                                    unreachable!("The lexer does not produce ByteString")
+                                }
                                 Token::OpeningCurly
                                 | Token::OpeningRound
                                 | Token::OpeningSquare => {
@@ -672,6 +691,15 @@ pub enum Token {
     #[token("fr\"")]
     RawFStringDoubleQuote,
 
+    /// The start of a single-quoted byte string.
+    #[token("b'")]
+    #[token("br'")]
+    RawByteSingleQuote,
+    /// The start of a double-quoted byte string.
+    #[token("b\"")]
+    #[token("br\"")]
+    RawByteDoubleQuote,
+
     #[regex(
         "as|\
         async|\
@@ -717,6 +745,8 @@ pub enum Token {
     String(String), // A string literal
     /// The raw text of a f-string
     FString(TokenFString),
+    /// A byte string literal (b"..." or b'...')
+    ByteString(Vec<u8>),
 
     // Keywords
     #[token("and")]
@@ -869,6 +899,12 @@ impl Token {
                 serde_json::to_writer(&mut buff, &x.content).unwrap();
                 String::from_utf8(buff).unwrap()
             }
+            Token::ByteString(b) => {
+                let mut buff = Vec::new();
+                write!(&mut buff, "b").unwrap();
+                serde_json::to_writer(&mut buff, &String::from_utf8_lossy(b).to_string()).unwrap();
+                String::from_utf8(buff).unwrap()
+            }
             _ => {
                 let s = self.to_string();
                 // Out display is often: keyword 'lambda'
@@ -967,6 +1003,9 @@ impl Display for Token {
             Token::RawFStringDoubleQuote => write!(f, "starting f'"),
             Token::RawFStringSingleQuote => write!(f, "starting f\""),
             Token::FString(s) => write!(f, "f-string {:?}", &s.content),
+            Token::RawByteSingleQuote => write!(f, "starting b'"),
+            Token::RawByteDoubleQuote => write!(f, "starting b\""),
+            Token::ByteString(b) => write!(f, "byte string literal ({} bytes)", b.len()),
             Token::Comment(c) => write!(f, "comment '{c}'"),
             Token::Tabs => Ok(()),
         }
