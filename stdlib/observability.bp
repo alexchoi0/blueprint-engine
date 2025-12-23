@@ -1,0 +1,419 @@
+def Datadog(api_key=None, app_key=None, site=None):
+    """
+    Create a Datadog client for monitoring and observability.
+
+    Args:
+        api_key: Datadog API key (defaults to DATADOG_API_KEY env var)
+        app_key: Datadog application key (defaults to DATADOG_APP_KEY env var)
+        site: Datadog site (defaults to DATADOG_SITE env var or "datadoghq.com")
+
+    Returns:
+        A Datadog client struct with methods for metrics and events.
+    """
+    key = api_key if api_key else env("DATADOG_API_KEY")
+    app = app_key if app_key else env("DATADOG_APP_KEY")
+    s = site if site else env("DATADOG_SITE")
+    if not s:
+        s = "datadoghq.com"
+    if not key:
+        fail("Datadog API key not found. Set DATADOG_API_KEY or provide api_key parameter")
+
+    base_url = "https://api." + s
+
+    def _headers():
+        h = {
+            "DD-API-KEY": key,
+            "Content-Type": "application/json"
+        }
+        if app:
+            h["DD-APPLICATION-KEY"] = app
+        return h
+
+    def _submit_metrics(series):
+        body = {"series": series}
+        resp = http_request("POST", base_url + "/api/v2/series", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Datadog submit metrics failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _metric(name, value, metric_type="gauge", tags=None, timestamp=None):
+        point = {"value": value}
+        if timestamp:
+            point["timestamp"] = timestamp
+        else:
+            point["timestamp"] = int(time())
+        metric = {
+            "metric": name,
+            "type": metric_type,
+            "points": [point]
+        }
+        if tags:
+            metric["tags"] = tags
+        return _submit_metrics([metric])
+
+    def _send_event(title, text, alert_type="info", tags=None, priority=None):
+        body = {
+            "title": title,
+            "text": text,
+            "alert_type": alert_type
+        }
+        if tags:
+            body["tags"] = tags
+        if priority:
+            body["priority"] = priority
+        resp = http_request("POST", base_url + "/api/v1/events", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Datadog send event failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _query_metrics(query, from_ts, to_ts):
+        url = base_url + "/api/v1/query?query=" + url_encode(query) + "&from=" + str(from_ts) + "&to=" + str(to_ts)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Datadog query metrics failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _send_logs(logs):
+        resp = http_request("POST", base_url + "/api/v2/logs", headers=_headers(), body=json_encode(logs))
+        if resp.status >= 400:
+            fail("Datadog send logs failed: " + resp.body)
+        return {"status": "ok"}
+
+    def _log(message, service=None, level="info", tags=None):
+        log_entry = {
+            "message": message,
+            "ddsource": "blueprint",
+            "ddtags": ",".join(tags) if tags else "",
+            "status": level
+        }
+        if service:
+            log_entry["service"] = service
+        return _send_logs([log_entry])
+
+    def _list_monitors():
+        resp = http_request("GET", base_url + "/api/v1/monitor", headers=_headers())
+        if resp.status >= 400:
+            fail("Datadog list monitors failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_monitor(name, type, query, message=None, tags=None, priority=None):
+        body = {
+            "name": name,
+            "type": type,
+            "query": query
+        }
+        if message:
+            body["message"] = message
+        if tags:
+            body["tags"] = tags
+        if priority:
+            body["priority"] = priority
+        resp = http_request("POST", base_url + "/api/v1/monitor", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Datadog create monitor failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "submit_metrics": _submit_metrics,
+        "metric": _metric,
+        "send_event": _send_event,
+        "query_metrics": _query_metrics,
+        "send_logs": _send_logs,
+        "log": _log,
+        "list_monitors": _list_monitors,
+        "create_monitor": _create_monitor,
+    }
+
+
+def Sentry(dsn=None, auth_token=None, org=None, project=None):
+    """
+    Create a Sentry client for error tracking.
+
+    Args:
+        dsn: Sentry DSN (defaults to SENTRY_DSN env var)
+        auth_token: Sentry auth token (defaults to SENTRY_AUTH_TOKEN env var)
+        org: Sentry organization slug (defaults to SENTRY_ORG env var)
+        project: Sentry project slug (defaults to SENTRY_PROJECT env var)
+
+    Returns:
+        A Sentry client struct with methods for error tracking.
+    """
+    d = dsn if dsn else env("SENTRY_DSN")
+    token = auth_token if auth_token else env("SENTRY_AUTH_TOKEN")
+    organization = org if org else env("SENTRY_ORG")
+    proj = project if project else env("SENTRY_PROJECT")
+
+    base_url = "https://sentry.io/api/0"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+        }
+
+    def _capture_message(message, level="info", tags=None, extra=None):
+        if not d:
+            fail("Sentry DSN not found for capturing messages")
+        event = {
+            "message": message,
+            "level": level,
+            "platform": "other"
+        }
+        if tags:
+            event["tags"] = tags
+        if extra:
+            event["extra"] = extra
+        parts = d.split("@")
+        if len(parts) != 2:
+            fail("Invalid Sentry DSN format")
+        auth_part = parts[0]
+        host_part = parts[1]
+        key_start = auth_part.rfind("//") + 2
+        colon_pos = auth_part.find(":", key_start)
+        sentry_key = auth_part[key_start:colon_pos] if colon_pos != -1 else auth_part[key_start:]
+        project_start = host_part.rfind("/") + 1
+        project_id = host_part[project_start:]
+        host_end = host_part.find("/")
+        host = host_part[:host_end]
+        store_url = "https://" + host + "/api/" + project_id + "/store/"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Sentry-Auth": "Sentry sentry_version=7, sentry_key=" + sentry_key
+        }
+        resp = http_request("POST", store_url, headers=headers, body=json_encode(event))
+        if resp.status >= 400:
+            fail("Sentry capture message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _capture_exception(exception_type, value, stacktrace=None, tags=None, extra=None):
+        if not d:
+            fail("Sentry DSN not found for capturing exceptions")
+        event = {
+            "exception": {
+                "values": [{
+                    "type": exception_type,
+                    "value": value
+                }]
+            },
+            "level": "error",
+            "platform": "other"
+        }
+        if stacktrace:
+            event["exception"]["values"][0]["stacktrace"] = {"frames": stacktrace}
+        if tags:
+            event["tags"] = tags
+        if extra:
+            event["extra"] = extra
+        parts = d.split("@")
+        auth_part = parts[0]
+        host_part = parts[1]
+        key_start = auth_part.rfind("//") + 2
+        colon_pos = auth_part.find(":", key_start)
+        sentry_key = auth_part[key_start:colon_pos] if colon_pos != -1 else auth_part[key_start:]
+        project_start = host_part.rfind("/") + 1
+        project_id = host_part[project_start:]
+        host_end = host_part.find("/")
+        host = host_part[:host_end]
+        store_url = "https://" + host + "/api/" + project_id + "/store/"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Sentry-Auth": "Sentry sentry_version=7, sentry_key=" + sentry_key
+        }
+        resp = http_request("POST", store_url, headers=headers, body=json_encode(event))
+        if resp.status >= 400:
+            fail("Sentry capture exception failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_issues(query=None, status=None):
+        if not token or not organization or not proj:
+            fail("Sentry auth token, org, and project required for API operations")
+        url = base_url + "/projects/" + organization + "/" + proj + "/issues/"
+        params = []
+        if query:
+            params.append("query=" + url_encode(query))
+        if status:
+            params.append("status=" + status)
+        if params:
+            url = url + "?" + "&".join(params)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Sentry list issues failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_issue(issue_id):
+        if not token:
+            fail("Sentry auth token required for API operations")
+        resp = http_request("GET", base_url + "/issues/" + str(issue_id) + "/", headers=_headers())
+        if resp.status >= 400:
+            fail("Sentry get issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _resolve_issue(issue_id):
+        if not token:
+            fail("Sentry auth token required for API operations")
+        body = {"status": "resolved"}
+        resp = http_request("PUT", base_url + "/issues/" + str(issue_id) + "/", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Sentry resolve issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "capture_message": _capture_message,
+        "capture_exception": _capture_exception,
+        "list_issues": _list_issues,
+        "get_issue": _get_issue,
+        "resolve_issue": _resolve_issue,
+    }
+
+
+def PostHog(api_key=None, host=None):
+    """
+    Create a PostHog client for product analytics.
+
+    Args:
+        api_key: PostHog API key (defaults to POSTHOG_API_KEY env var)
+        host: PostHog host (defaults to POSTHOG_HOST env var or "https://app.posthog.com")
+
+    Returns:
+        A PostHog client struct with methods for analytics.
+    """
+    key = api_key if api_key else env("POSTHOG_API_KEY")
+    h = host if host else env("POSTHOG_HOST")
+    if not h:
+        h = "https://app.posthog.com"
+    if not key:
+        fail("PostHog API key not found. Set POSTHOG_API_KEY or provide api_key parameter")
+
+    def _headers():
+        return {"Content-Type": "application/json"}
+
+    def _capture(distinct_id, event, properties=None, timestamp=None):
+        body = {
+            "api_key": key,
+            "distinct_id": distinct_id,
+            "event": event
+        }
+        if properties:
+            body["properties"] = properties
+        if timestamp:
+            body["timestamp"] = timestamp
+        resp = http_request("POST", h + "/capture/", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("PostHog capture failed: " + resp.body)
+        return {"status": "ok"}
+
+    def _identify(distinct_id, properties):
+        body = {
+            "api_key": key,
+            "distinct_id": distinct_id,
+            "event": "$identify",
+            "$set": properties
+        }
+        resp = http_request("POST", h + "/capture/", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("PostHog identify failed: " + resp.body)
+        return {"status": "ok"}
+
+    def _alias(distinct_id, alias):
+        body = {
+            "api_key": key,
+            "distinct_id": distinct_id,
+            "event": "$create_alias",
+            "properties": {"alias": alias}
+        }
+        resp = http_request("POST", h + "/capture/", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("PostHog alias failed: " + resp.body)
+        return {"status": "ok"}
+
+    def _batch(events):
+        body = {
+            "api_key": key,
+            "batch": events
+        }
+        resp = http_request("POST", h + "/batch/", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("PostHog batch failed: " + resp.body)
+        return {"status": "ok"}
+
+    def _feature_flags(distinct_id, groups=None):
+        body = {
+            "api_key": key,
+            "distinct_id": distinct_id
+        }
+        if groups:
+            body["groups"] = groups
+        resp = http_request("POST", h + "/decide/?v=3", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("PostHog feature flags failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "capture": _capture,
+        "identify": _identify,
+        "alias": _alias,
+        "batch": _batch,
+        "feature_flags": _feature_flags,
+    }
+
+
+def Mixpanel(token=None, api_secret=None):
+    """
+    Create a Mixpanel client for product analytics.
+
+    Args:
+        token: Mixpanel project token (defaults to MIXPANEL_TOKEN env var)
+        api_secret: Mixpanel API secret (defaults to MIXPANEL_API_SECRET env var)
+
+    Returns:
+        A Mixpanel client struct with methods for analytics.
+    """
+    tok = token if token else env("MIXPANEL_TOKEN")
+    secret = api_secret if api_secret else env("MIXPANEL_API_SECRET")
+    if not tok:
+        fail("Mixpanel token not found. Set MIXPANEL_TOKEN or provide token parameter")
+
+    def _track(distinct_id, event, properties=None):
+        props = {"token": tok, "distinct_id": distinct_id}
+        if properties:
+            for k in properties:
+                props[k] = properties[k]
+        data = {"event": event, "properties": props}
+        encoded = base64_encode(json_encode(data))
+        resp = http_request("GET", "https://api.mixpanel.com/track?data=" + encoded, headers={})
+        if resp.status >= 400:
+            fail("Mixpanel track failed: " + resp.body)
+        return {"status": "ok"}
+
+    def _identify(distinct_id, properties):
+        data = {
+            "$token": tok,
+            "$distinct_id": distinct_id,
+            "$set": properties
+        }
+        encoded = base64_encode(json_encode(data))
+        resp = http_request("GET", "https://api.mixpanel.com/engage?data=" + encoded, headers={})
+        if resp.status >= 400:
+            fail("Mixpanel identify failed: " + resp.body)
+        return {"status": "ok"}
+
+    def _alias(distinct_id, alias):
+        data = {
+            "event": "$create_alias",
+            "properties": {
+                "token": tok,
+                "distinct_id": distinct_id,
+                "alias": alias
+            }
+        }
+        encoded = base64_encode(json_encode(data))
+        resp = http_request("GET", "https://api.mixpanel.com/track?data=" + encoded, headers={})
+        if resp.status >= 400:
+            fail("Mixpanel alias failed: " + resp.body)
+        return {"status": "ok"}
+
+    return {
+        "track": _track,
+        "identify": _identify,
+        "alias": _alias,
+    }

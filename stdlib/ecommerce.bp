@@ -1,0 +1,353 @@
+def Shopify(store=None, access_token=None):
+    """
+    Create a Shopify client for e-commerce operations.
+
+    Args:
+        store: Shopify store name (e.g., "mystore", defaults to SHOPIFY_STORE env var)
+        access_token: Shopify access token (defaults to SHOPIFY_ACCESS_TOKEN env var)
+
+    Returns:
+        A Shopify client struct with methods for e-commerce operations.
+
+    Example:
+        shopify = Shopify()
+        products = shopify.list_products()
+        order = shopify.create_order([{"variant_id": 123, "quantity": 1}])
+    """
+    st = store if store else env("SHOPIFY_STORE")
+    token = access_token if access_token else env("SHOPIFY_ACCESS_TOKEN")
+    if not st:
+        fail("Shopify store not found. Set SHOPIFY_STORE or provide store parameter")
+    if not token:
+        fail("Shopify access token not found. Set SHOPIFY_ACCESS_TOKEN or provide access_token parameter")
+
+    base_url = "https://" + st + ".myshopify.com/admin/api/2024-01"
+
+    def _headers():
+        return {
+            "X-Shopify-Access-Token": token,
+            "Content-Type": "application/json"
+        }
+
+    def _list_products(limit=50, collection_id=None):
+        url = base_url + "/products.json?limit=" + str(limit)
+        if collection_id:
+            url = url + "&collection_id=" + str(collection_id)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Shopify list products failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_product(product_id):
+        resp = http_request("GET", base_url + "/products/" + str(product_id) + ".json", headers=_headers())
+        if resp.status >= 400:
+            fail("Shopify get product failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_product(title, body_html=None, vendor=None, product_type=None, variants=None, images=None):
+        product = {"title": title}
+        if body_html:
+            product["body_html"] = body_html
+        if vendor:
+            product["vendor"] = vendor
+        if product_type:
+            product["product_type"] = product_type
+        if variants:
+            product["variants"] = variants
+        if images:
+            product["images"] = images
+        body = {"product": product}
+        resp = http_request("POST", base_url + "/products.json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Shopify create product failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_product(product_id, title=None, body_html=None, vendor=None, product_type=None):
+        product = {}
+        if title:
+            product["title"] = title
+        if body_html:
+            product["body_html"] = body_html
+        if vendor:
+            product["vendor"] = vendor
+        if product_type:
+            product["product_type"] = product_type
+        body = {"product": product}
+        resp = http_request("PUT", base_url + "/products/" + str(product_id) + ".json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Shopify update product failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_product(product_id):
+        resp = http_request("DELETE", base_url + "/products/" + str(product_id) + ".json", headers=_headers())
+        if resp.status >= 400:
+            fail("Shopify delete product failed: " + resp.body)
+        return {"deleted": True}
+
+    def _list_orders(status="any", limit=50):
+        resp = http_request("GET", base_url + "/orders.json?status=" + status + "&limit=" + str(limit), headers=_headers())
+        if resp.status >= 400:
+            fail("Shopify list orders failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_order(order_id):
+        resp = http_request("GET", base_url + "/orders/" + str(order_id) + ".json", headers=_headers())
+        if resp.status >= 400:
+            fail("Shopify get order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_order(line_items, email=None, shipping_address=None, financial_status="pending"):
+        order = {
+            "line_items": line_items,
+            "financial_status": financial_status
+        }
+        if email:
+            order["email"] = email
+        if shipping_address:
+            order["shipping_address"] = shipping_address
+        body = {"order": order}
+        resp = http_request("POST", base_url + "/orders.json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Shopify create order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _cancel_order(order_id, reason=None):
+        body = {}
+        if reason:
+            body["reason"] = reason
+        resp = http_request("POST", base_url + "/orders/" + str(order_id) + "/cancel.json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Shopify cancel order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_customers(limit=50):
+        resp = http_request("GET", base_url + "/customers.json?limit=" + str(limit), headers=_headers())
+        if resp.status >= 400:
+            fail("Shopify list customers failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_customer(customer_id):
+        resp = http_request("GET", base_url + "/customers/" + str(customer_id) + ".json", headers=_headers())
+        if resp.status >= 400:
+            fail("Shopify get customer failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_customer(email, first_name=None, last_name=None, phone=None, addresses=None):
+        customer = {"email": email}
+        if first_name:
+            customer["first_name"] = first_name
+        if last_name:
+            customer["last_name"] = last_name
+        if phone:
+            customer["phone"] = phone
+        if addresses:
+            customer["addresses"] = addresses
+        body = {"customer": customer}
+        resp = http_request("POST", base_url + "/customers.json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Shopify create customer failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_inventory(inventory_item_id, location_id, available):
+        body = {
+            "location_id": location_id,
+            "inventory_item_id": inventory_item_id,
+            "available": available
+        }
+        resp = http_request("POST", base_url + "/inventory_levels/set.json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Shopify update inventory failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_collections(limit=50):
+        resp = http_request("GET", base_url + "/custom_collections.json?limit=" + str(limit), headers=_headers())
+        if resp.status >= 400:
+            fail("Shopify list collections failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_products": _list_products,
+        "get_product": _get_product,
+        "create_product": _create_product,
+        "update_product": _update_product,
+        "delete_product": _delete_product,
+        "list_orders": _list_orders,
+        "get_order": _get_order,
+        "create_order": _create_order,
+        "cancel_order": _cancel_order,
+        "list_customers": _list_customers,
+        "get_customer": _get_customer,
+        "create_customer": _create_customer,
+        "update_inventory": _update_inventory,
+        "list_collections": _list_collections,
+    }
+
+
+def WooCommerce(url=None, consumer_key=None, consumer_secret=None):
+    """
+    Create a WooCommerce client for e-commerce operations.
+
+    Args:
+        url: WooCommerce store URL (defaults to WOOCOMMERCE_URL env var)
+        consumer_key: WooCommerce consumer key (defaults to WOOCOMMERCE_CONSUMER_KEY env var)
+        consumer_secret: WooCommerce consumer secret (defaults to WOOCOMMERCE_CONSUMER_SECRET env var)
+
+    Returns:
+        A WooCommerce client struct with methods for e-commerce operations.
+    """
+    base = url if url else env("WOOCOMMERCE_URL")
+    ck = consumer_key if consumer_key else env("WOOCOMMERCE_CONSUMER_KEY")
+    cs = consumer_secret if consumer_secret else env("WOOCOMMERCE_CONSUMER_SECRET")
+    if not base:
+        fail("WooCommerce URL not found. Set WOOCOMMERCE_URL or provide url parameter")
+    if not ck:
+        fail("WooCommerce consumer key not found. Set WOOCOMMERCE_CONSUMER_KEY or provide consumer_key parameter")
+    if not cs:
+        fail("WooCommerce consumer secret not found. Set WOOCOMMERCE_CONSUMER_SECRET or provide consumer_secret parameter")
+
+    api_url = base + "/wp-json/wc/v3"
+
+    def _headers():
+        auth = base64_encode(ck + ":" + cs)
+        return {
+            "Authorization": "Basic " + auth,
+            "Content-Type": "application/json"
+        }
+
+    def _list_products(per_page=20, page=1, category=None, status=None):
+        params = "?per_page=" + str(per_page) + "&page=" + str(page)
+        if category:
+            params = params + "&category=" + str(category)
+        if status:
+            params = params + "&status=" + status
+        resp = http_request("GET", api_url + "/products" + params, headers=_headers())
+        if resp.status >= 400:
+            fail("WooCommerce list products failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_product(product_id):
+        resp = http_request("GET", api_url + "/products/" + str(product_id), headers=_headers())
+        if resp.status >= 400:
+            fail("WooCommerce get product failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_product(name, type="simple", regular_price=None, description=None, categories=None, images=None):
+        product = {"name": name, "type": type}
+        if regular_price:
+            product["regular_price"] = str(regular_price)
+        if description:
+            product["description"] = description
+        if categories:
+            product["categories"] = [{"id": c} for c in categories]
+        if images:
+            product["images"] = images
+        resp = http_request("POST", api_url + "/products", headers=_headers(), body=json_encode(product))
+        if resp.status >= 400:
+            fail("WooCommerce create product failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_product(product_id, name=None, regular_price=None, description=None, stock_quantity=None):
+        product = {}
+        if name:
+            product["name"] = name
+        if regular_price:
+            product["regular_price"] = str(regular_price)
+        if description:
+            product["description"] = description
+        if stock_quantity != None:
+            product["stock_quantity"] = stock_quantity
+            product["manage_stock"] = True
+        resp = http_request("PUT", api_url + "/products/" + str(product_id), headers=_headers(), body=json_encode(product))
+        if resp.status >= 400:
+            fail("WooCommerce update product failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_product(product_id, force=True):
+        params = "?force=" + ("true" if force else "false")
+        resp = http_request("DELETE", api_url + "/products/" + str(product_id) + params, headers=_headers())
+        if resp.status >= 400:
+            fail("WooCommerce delete product failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_orders(per_page=20, page=1, status=None):
+        params = "?per_page=" + str(per_page) + "&page=" + str(page)
+        if status:
+            params = params + "&status=" + status
+        resp = http_request("GET", api_url + "/orders" + params, headers=_headers())
+        if resp.status >= 400:
+            fail("WooCommerce list orders failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_order(order_id):
+        resp = http_request("GET", api_url + "/orders/" + str(order_id), headers=_headers())
+        if resp.status >= 400:
+            fail("WooCommerce get order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_order(line_items, billing=None, shipping=None, payment_method=None, status="pending"):
+        order = {
+            "line_items": line_items,
+            "status": status
+        }
+        if billing:
+            order["billing"] = billing
+        if shipping:
+            order["shipping"] = shipping
+        if payment_method:
+            order["payment_method"] = payment_method
+        resp = http_request("POST", api_url + "/orders", headers=_headers(), body=json_encode(order))
+        if resp.status >= 400:
+            fail("WooCommerce create order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_order(order_id, status=None):
+        order = {}
+        if status:
+            order["status"] = status
+        resp = http_request("PUT", api_url + "/orders/" + str(order_id), headers=_headers(), body=json_encode(order))
+        if resp.status >= 400:
+            fail("WooCommerce update order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_customers(per_page=20, page=1):
+        params = "?per_page=" + str(per_page) + "&page=" + str(page)
+        resp = http_request("GET", api_url + "/customers" + params, headers=_headers())
+        if resp.status >= 400:
+            fail("WooCommerce list customers failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_customer(email, first_name=None, last_name=None, billing=None, shipping=None):
+        customer = {"email": email}
+        if first_name:
+            customer["first_name"] = first_name
+        if last_name:
+            customer["last_name"] = last_name
+        if billing:
+            customer["billing"] = billing
+        if shipping:
+            customer["shipping"] = shipping
+        resp = http_request("POST", api_url + "/customers", headers=_headers(), body=json_encode(customer))
+        if resp.status >= 400:
+            fail("WooCommerce create customer failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_categories(per_page=20):
+        resp = http_request("GET", api_url + "/products/categories?per_page=" + str(per_page), headers=_headers())
+        if resp.status >= 400:
+            fail("WooCommerce list categories failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_products": _list_products,
+        "get_product": _get_product,
+        "create_product": _create_product,
+        "update_product": _update_product,
+        "delete_product": _delete_product,
+        "list_orders": _list_orders,
+        "get_order": _get_order,
+        "create_order": _create_order,
+        "update_order": _update_order,
+        "list_customers": _list_customers,
+        "create_customer": _create_customer,
+        "list_categories": _list_categories,
+    }

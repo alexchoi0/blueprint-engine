@@ -1,0 +1,299 @@
+def Twitter(bearer_token=None, api_key=None, api_secret=None, access_token=None, access_secret=None):
+    """
+    Create a Twitter/X client for social media operations.
+
+    Args:
+        bearer_token: Twitter bearer token (defaults to TWITTER_BEARER_TOKEN env var)
+        api_key: Twitter API key for OAuth 1.0a (defaults to TWITTER_API_KEY env var)
+        api_secret: Twitter API secret (defaults to TWITTER_API_SECRET env var)
+        access_token: User access token (defaults to TWITTER_ACCESS_TOKEN env var)
+        access_secret: User access secret (defaults to TWITTER_ACCESS_SECRET env var)
+
+    Returns:
+        A Twitter client struct with methods for Twitter operations.
+    """
+    bearer = bearer_token if bearer_token else env("TWITTER_BEARER_TOKEN")
+    if not bearer:
+        fail("Twitter bearer token not found. Set TWITTER_BEARER_TOKEN or provide bearer_token parameter")
+
+    base_url = "https://api.twitter.com/2"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + bearer,
+            "Content-Type": "application/json"
+        }
+
+    def _get_user(username):
+        resp = http_request("GET", base_url + "/users/by/username/" + username, headers=_headers())
+        if resp.status >= 400:
+            fail("Twitter get user failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_user_by_id(user_id):
+        resp = http_request("GET", base_url + "/users/" + user_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Twitter get user by id failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_tweets(user_id, max_results=10):
+        resp = http_request("GET", base_url + "/users/" + user_id + "/tweets?max_results=" + str(max_results), headers=_headers())
+        if resp.status >= 400:
+            fail("Twitter get tweets failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _search_tweets(query, max_results=10):
+        resp = http_request("GET", base_url + "/tweets/search/recent?query=" + url_encode(query) + "&max_results=" + str(max_results), headers=_headers())
+        if resp.status >= 400:
+            fail("Twitter search tweets failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_tweet(tweet_id):
+        resp = http_request("GET", base_url + "/tweets/" + tweet_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Twitter get tweet failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _post_tweet(text, reply_to=None):
+        body = {"text": text}
+        if reply_to:
+            body["reply"] = {"in_reply_to_tweet_id": reply_to}
+        resp = http_request("POST", base_url + "/tweets", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Twitter post tweet failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_tweet(tweet_id):
+        resp = http_request("DELETE", base_url + "/tweets/" + tweet_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Twitter delete tweet failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_followers(user_id, max_results=100):
+        resp = http_request("GET", base_url + "/users/" + user_id + "/followers?max_results=" + str(max_results), headers=_headers())
+        if resp.status >= 400:
+            fail("Twitter get followers failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_following(user_id, max_results=100):
+        resp = http_request("GET", base_url + "/users/" + user_id + "/following?max_results=" + str(max_results), headers=_headers())
+        if resp.status >= 400:
+            fail("Twitter get following failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "get_user": _get_user,
+        "get_user_by_id": _get_user_by_id,
+        "get_tweets": _get_tweets,
+        "search_tweets": _search_tweets,
+        "get_tweet": _get_tweet,
+        "post_tweet": _post_tweet,
+        "delete_tweet": _delete_tweet,
+        "get_followers": _get_followers,
+        "get_following": _get_following,
+    }
+
+
+def LinkedIn(access_token=None):
+    """
+    Create a LinkedIn client for social media operations.
+
+    Args:
+        access_token: LinkedIn access token (defaults to LINKEDIN_ACCESS_TOKEN env var)
+
+    Returns:
+        A LinkedIn client struct with methods for LinkedIn operations.
+    """
+    token = access_token if access_token else env("LINKEDIN_ACCESS_TOKEN")
+    if not token:
+        fail("LinkedIn access token not found. Set LINKEDIN_ACCESS_TOKEN or provide access_token parameter")
+
+    base_url = "https://api.linkedin.com/v2"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json",
+            "X-Restli-Protocol-Version": "2.0.0"
+        }
+
+    def _get_profile():
+        resp = http_request("GET", base_url + "/me", headers=_headers())
+        if resp.status >= 400:
+            fail("LinkedIn get profile failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _share_post(text, visibility="PUBLIC"):
+        body = {
+            "author": "urn:li:person:" + _get_profile()["id"],
+            "lifecycleState": "PUBLISHED",
+            "specificContent": {
+                "com.linkedin.ugc.ShareContent": {
+                    "shareCommentary": {"text": text},
+                    "shareMediaCategory": "NONE"
+                }
+            },
+            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": visibility}
+        }
+        resp = http_request("POST", base_url + "/ugcPosts", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("LinkedIn share post failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _share_article(text, url, title=None, description=None, visibility="PUBLIC"):
+        media = {
+            "status": "READY",
+            "originalUrl": url
+        }
+        if title:
+            media["title"] = {"text": title}
+        if description:
+            media["description"] = {"text": description}
+        body = {
+            "author": "urn:li:person:" + _get_profile()["id"],
+            "lifecycleState": "PUBLISHED",
+            "specificContent": {
+                "com.linkedin.ugc.ShareContent": {
+                    "shareCommentary": {"text": text},
+                    "shareMediaCategory": "ARTICLE",
+                    "media": [media]
+                }
+            },
+            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": visibility}
+        }
+        resp = http_request("POST", base_url + "/ugcPosts", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("LinkedIn share article failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_connections(count=50, start=0):
+        resp = http_request("GET", base_url + "/connections?q=viewer&count=" + str(count) + "&start=" + str(start), headers=_headers())
+        if resp.status >= 400:
+            fail("LinkedIn get connections failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "get_profile": _get_profile,
+        "share_post": _share_post,
+        "share_article": _share_article,
+        "get_connections": _get_connections,
+    }
+
+
+def Reddit(client_id=None, client_secret=None, username=None, password=None, user_agent=None):
+    """
+    Create a Reddit client for social media operations.
+
+    Args:
+        client_id: Reddit client ID (defaults to REDDIT_CLIENT_ID env var)
+        client_secret: Reddit client secret (defaults to REDDIT_CLIENT_SECRET env var)
+        username: Reddit username (defaults to REDDIT_USERNAME env var)
+        password: Reddit password (defaults to REDDIT_PASSWORD env var)
+        user_agent: User agent string (defaults to REDDIT_USER_AGENT env var)
+
+    Returns:
+        A Reddit client struct with methods for Reddit operations.
+    """
+    cid = client_id if client_id else env("REDDIT_CLIENT_ID")
+    secret = client_secret if client_secret else env("REDDIT_CLIENT_SECRET")
+    user = username if username else env("REDDIT_USERNAME")
+    pwd = password if password else env("REDDIT_PASSWORD")
+    ua = user_agent if user_agent else env("REDDIT_USER_AGENT")
+    if not ua:
+        ua = "Blueprint/1.0"
+    if not cid:
+        fail("Reddit client ID not found. Set REDDIT_CLIENT_ID or provide client_id parameter")
+    if not secret:
+        fail("Reddit client secret not found. Set REDDIT_CLIENT_SECRET or provide client_secret parameter")
+
+    base_url = "https://oauth.reddit.com"
+    access_token = None
+
+    def _get_token():
+        auth = base64_encode(cid + ":" + secret)
+        headers = {
+            "Authorization": "Basic " + auth,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": ua
+        }
+        if user and pwd:
+            body = "grant_type=password&username=" + user + "&password=" + pwd
+        else:
+            body = "grant_type=client_credentials"
+        resp = http_request("POST", "https://www.reddit.com/api/v1/access_token", headers=headers, body=body)
+        if resp.status >= 400:
+            fail("Reddit auth failed: " + resp.body)
+        return json_decode(resp.body)["access_token"]
+
+    def _headers():
+        nonlocal access_token
+        if not access_token:
+            access_token = _get_token()
+        return {
+            "Authorization": "Bearer " + access_token,
+            "User-Agent": ua
+        }
+
+    def _get_subreddit(subreddit, sort="hot", limit=25):
+        resp = http_request("GET", base_url + "/r/" + subreddit + "/" + sort + "?limit=" + str(limit), headers=_headers())
+        if resp.status >= 400:
+            fail("Reddit get subreddit failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _search(query, subreddit=None, sort="relevance", limit=25):
+        url = base_url
+        if subreddit:
+            url = url + "/r/" + subreddit
+        url = url + "/search?q=" + url_encode(query) + "&sort=" + sort + "&limit=" + str(limit)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Reddit search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_post(post_id):
+        resp = http_request("GET", base_url + "/comments/" + post_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Reddit get post failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _submit_post(subreddit, title, text=None, url=None):
+        h = _headers()
+        h["Content-Type"] = "application/x-www-form-urlencoded"
+        body = "sr=" + subreddit + "&title=" + url_encode(title) + "&api_type=json"
+        if text:
+            body = body + "&kind=self&text=" + url_encode(text)
+        elif url:
+            body = body + "&kind=link&url=" + url_encode(url)
+        else:
+            body = body + "&kind=self"
+        resp = http_request("POST", base_url + "/api/submit", headers=h, body=body)
+        if resp.status >= 400:
+            fail("Reddit submit post failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _comment(thing_id, text):
+        h = _headers()
+        h["Content-Type"] = "application/x-www-form-urlencoded"
+        body = "thing_id=" + thing_id + "&text=" + url_encode(text) + "&api_type=json"
+        resp = http_request("POST", base_url + "/api/comment", headers=h, body=body)
+        if resp.status >= 400:
+            fail("Reddit comment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _vote(thing_id, direction):
+        h = _headers()
+        h["Content-Type"] = "application/x-www-form-urlencoded"
+        body = "id=" + thing_id + "&dir=" + str(direction)
+        resp = http_request("POST", base_url + "/api/vote", headers=h, body=body)
+        if resp.status >= 400:
+            fail("Reddit vote failed: " + resp.body)
+        return {"status": "ok"}
+
+    return {
+        "get_subreddit": _get_subreddit,
+        "search": _search,
+        "get_post": _get_post,
+        "submit_post": _submit_post,
+        "comment": _comment,
+        "vote": _vote,
+    }

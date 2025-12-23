@@ -1,0 +1,364 @@
+def Stripe(api_key=None):
+    """
+    Create a Stripe client for payment processing.
+
+    Args:
+        api_key: Stripe API key (defaults to STRIPE_API_KEY env var)
+
+    Returns:
+        A Stripe client struct with methods for payment operations.
+
+    Example:
+        stripe = Stripe()
+        charge = stripe.charge(1000, "usd", "tok_visa")
+        stripe.refund(charge["id"])
+    """
+    key = api_key if api_key else env("STRIPE_API_KEY")
+    if not key:
+        fail("Stripe API key not found. Set STRIPE_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.stripe.com/v1"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+
+    def _encode_params(params):
+        parts = []
+        for k in params:
+            v = params[k]
+            if v != None:
+                parts.append(k + "=" + str(v))
+        return "&".join(parts)
+
+    def _charge(amount, currency, source, description=None, metadata=None, customer=None, capture=True):
+        params = {
+            "amount": amount,
+            "currency": currency,
+            "source": source,
+            "capture": "true" if capture else "false"
+        }
+        if description:
+            params["description"] = description
+        if customer:
+            params["customer"] = customer
+        if metadata:
+            for k in metadata:
+                params["metadata[" + k + "]"] = metadata[k]
+        resp = http_request("POST", base_url + "/charges", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Stripe charge failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _capture(charge_id, amount=None):
+        params = {}
+        if amount:
+            params["amount"] = amount
+        resp = http_request("POST", base_url + "/charges/" + charge_id + "/capture", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Stripe capture failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _refund(charge_id, amount=None, reason=None):
+        params = {"charge": charge_id}
+        if amount:
+            params["amount"] = amount
+        if reason:
+            params["reason"] = reason
+        resp = http_request("POST", base_url + "/refunds", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Stripe refund failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_customer(email=None, name=None, description=None, metadata=None):
+        params = {}
+        if email:
+            params["email"] = email
+        if name:
+            params["name"] = name
+        if description:
+            params["description"] = description
+        if metadata:
+            for k in metadata:
+                params["metadata[" + k + "]"] = metadata[k]
+        resp = http_request("POST", base_url + "/customers", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Stripe create customer failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_customer(customer_id):
+        resp = http_request("GET", base_url + "/customers/" + customer_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Stripe get customer failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_payment_intent(amount, currency, customer=None, payment_method=None, confirm=False, metadata=None):
+        params = {
+            "amount": amount,
+            "currency": currency,
+            "confirm": "true" if confirm else "false"
+        }
+        if customer:
+            params["customer"] = customer
+        if payment_method:
+            params["payment_method"] = payment_method
+        if metadata:
+            for k in metadata:
+                params["metadata[" + k + "]"] = metadata[k]
+        resp = http_request("POST", base_url + "/payment_intents", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Stripe create payment intent failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _confirm_payment_intent(payment_intent_id, payment_method=None):
+        params = {}
+        if payment_method:
+            params["payment_method"] = payment_method
+        resp = http_request("POST", base_url + "/payment_intents/" + payment_intent_id + "/confirm", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Stripe confirm payment intent failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _cancel_payment_intent(payment_intent_id, reason=None):
+        params = {}
+        if reason:
+            params["cancellation_reason"] = reason
+        resp = http_request("POST", base_url + "/payment_intents/" + payment_intent_id + "/cancel", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Stripe cancel payment intent failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_charges(limit=None, customer=None):
+        params = {}
+        if limit:
+            params["limit"] = limit
+        if customer:
+            params["customer"] = customer
+        query = _encode_params(params)
+        url = base_url + "/charges"
+        if query:
+            url = url + "?" + query
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Stripe list charges failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_subscription(customer, price, metadata=None):
+        params = {
+            "customer": customer,
+            "items[0][price]": price
+        }
+        if metadata:
+            for k in metadata:
+                params["metadata[" + k + "]"] = metadata[k]
+        resp = http_request("POST", base_url + "/subscriptions", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Stripe create subscription failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _cancel_subscription(subscription_id, at_period_end=False):
+        if at_period_end:
+            params = {"cancel_at_period_end": "true"}
+            resp = http_request("POST", base_url + "/subscriptions/" + subscription_id, headers=_headers(), body=_encode_params(params))
+        else:
+            resp = http_request("DELETE", base_url + "/subscriptions/" + subscription_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Stripe cancel subscription failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_balance():
+        resp = http_request("GET", base_url + "/balance", headers=_headers())
+        if resp.status >= 400:
+            fail("Stripe get balance failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "charge": _charge,
+        "capture": _capture,
+        "refund": _refund,
+        "create_customer": _create_customer,
+        "get_customer": _get_customer,
+        "create_payment_intent": _create_payment_intent,
+        "confirm_payment_intent": _confirm_payment_intent,
+        "cancel_payment_intent": _cancel_payment_intent,
+        "list_charges": _list_charges,
+        "create_subscription": _create_subscription,
+        "cancel_subscription": _cancel_subscription,
+        "get_balance": _get_balance,
+    }
+
+
+def PayPal(client_id=None, client_secret=None, sandbox=False):
+    """
+    Create a PayPal client for payment processing.
+
+    Args:
+        client_id: PayPal client ID (defaults to PAYPAL_CLIENT_ID env var)
+        client_secret: PayPal client secret (defaults to PAYPAL_CLIENT_SECRET env var)
+        sandbox: Use sandbox environment (default False)
+
+    Returns:
+        A PayPal client struct with methods for payment operations.
+    """
+    cid = client_id if client_id else env("PAYPAL_CLIENT_ID")
+    secret = client_secret if client_secret else env("PAYPAL_CLIENT_SECRET")
+    if not cid:
+        fail("PayPal client ID not found. Set PAYPAL_CLIENT_ID or provide client_id parameter")
+    if not secret:
+        fail("PayPal client secret not found. Set PAYPAL_CLIENT_SECRET or provide client_secret parameter")
+
+    base_url = "https://api-m.sandbox.paypal.com" if sandbox else "https://api-m.paypal.com"
+    access_token = None
+
+    def _get_token():
+        auth = base64_encode(cid + ":" + secret)
+        headers = {
+            "Authorization": "Basic " + auth,
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        resp = http_request("POST", base_url + "/v1/oauth2/token", headers=headers, body="grant_type=client_credentials")
+        if resp.status >= 400:
+            fail("PayPal auth failed: " + resp.body)
+        data = json_decode(resp.body)
+        return data["access_token"]
+
+    def _headers():
+        nonlocal access_token
+        if not access_token:
+            access_token = _get_token()
+        return {
+            "Authorization": "Bearer " + access_token,
+            "Content-Type": "application/json"
+        }
+
+    def _create_order(amount, currency="USD", intent="CAPTURE", description=None):
+        body = {
+            "intent": intent,
+            "purchase_units": [{
+                "amount": {
+                    "currency_code": currency,
+                    "value": str(amount)
+                }
+            }]
+        }
+        if description:
+            body["purchase_units"][0]["description"] = description
+        resp = http_request("POST", base_url + "/v2/checkout/orders", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("PayPal create order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _capture_order(order_id):
+        resp = http_request("POST", base_url + "/v2/checkout/orders/" + order_id + "/capture", headers=_headers())
+        if resp.status >= 400:
+            fail("PayPal capture order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_order(order_id):
+        resp = http_request("GET", base_url + "/v2/checkout/orders/" + order_id, headers=_headers())
+        if resp.status >= 400:
+            fail("PayPal get order failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _refund(capture_id, amount=None, currency=None):
+        body = {}
+        if amount:
+            body["amount"] = {
+                "currency_code": currency if currency else "USD",
+                "value": str(amount)
+            }
+        resp = http_request("POST", base_url + "/v2/payments/captures/" + capture_id + "/refund", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("PayPal refund failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "create_order": _create_order,
+        "capture_order": _capture_order,
+        "get_order": _get_order,
+        "refund": _refund,
+    }
+
+
+def Square(access_token=None, environment="production"):
+    """
+    Create a Square client for payment processing.
+
+    Args:
+        access_token: Square access token (defaults to SQUARE_ACCESS_TOKEN env var)
+        environment: "production" or "sandbox"
+
+    Returns:
+        A Square client struct with methods for payment operations.
+    """
+    token = access_token if access_token else env("SQUARE_ACCESS_TOKEN")
+    if not token:
+        fail("Square access token not found. Set SQUARE_ACCESS_TOKEN or provide access_token parameter")
+
+    base_url = "https://connect.squareupsandbox.com" if environment == "sandbox" else "https://connect.squareup.com"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json",
+            "Square-Version": "2024-01-18"
+        }
+
+    def _create_payment(amount, currency, source_id, location_id, idempotency_key=None):
+        body = {
+            "source_id": source_id,
+            "idempotency_key": idempotency_key if idempotency_key else uuid_v4(),
+            "amount_money": {
+                "amount": amount,
+                "currency": currency
+            },
+            "location_id": location_id
+        }
+        resp = http_request("POST", base_url + "/v2/payments", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Square create payment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_payment(payment_id):
+        resp = http_request("GET", base_url + "/v2/payments/" + payment_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Square get payment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _cancel_payment(payment_id):
+        resp = http_request("POST", base_url + "/v2/payments/" + payment_id + "/cancel", headers=_headers())
+        if resp.status >= 400:
+            fail("Square cancel payment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _refund(payment_id, amount, currency, idempotency_key=None, reason=None):
+        body = {
+            "idempotency_key": idempotency_key if idempotency_key else uuid_v4(),
+            "payment_id": payment_id,
+            "amount_money": {
+                "amount": amount,
+                "currency": currency
+            }
+        }
+        if reason:
+            body["reason"] = reason
+        resp = http_request("POST", base_url + "/v2/refunds", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Square refund failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_locations():
+        resp = http_request("GET", base_url + "/v2/locations", headers=_headers())
+        if resp.status >= 400:
+            fail("Square list locations failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "create_payment": _create_payment,
+        "get_payment": _get_payment,
+        "cancel_payment": _cancel_payment,
+        "refund": _refund,
+        "list_locations": _list_locations,
+    }

@@ -1,0 +1,406 @@
+def Notion(api_key=None):
+    """
+    Create a Notion client for productivity operations.
+
+    Args:
+        api_key: Notion API key (defaults to NOTION_API_KEY env var)
+
+    Returns:
+        A Notion client struct with methods for Notion operations.
+
+    Example:
+        notion = Notion()
+        page = notion.create_page("parent-id", "My Page", {"Name": {"title": [{"text": {"content": "Hello"}}]}})
+    """
+    key = api_key if api_key else env("NOTION_API_KEY")
+    if not key:
+        fail("Notion API key not found. Set NOTION_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.notion.com/v1"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json",
+            "Notion-Version": "2022-06-28"
+        }
+
+    def _search(query=None, filter_type=None, page_size=100):
+        body = {}
+        if query:
+            body["query"] = query
+        if filter_type:
+            body["filter"] = {"property": "object", "value": filter_type}
+        if page_size:
+            body["page_size"] = page_size
+        resp = http_request("POST", base_url + "/search", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Notion search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_page(page_id):
+        resp = http_request("GET", base_url + "/pages/" + page_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Notion get page failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_page(parent_id, title, properties=None, children=None, parent_type="database"):
+        parent = {}
+        if parent_type == "database":
+            parent["database_id"] = parent_id
+        else:
+            parent["page_id"] = parent_id
+        body = {"parent": parent}
+        if properties:
+            body["properties"] = properties
+        else:
+            body["properties"] = {"title": {"title": [{"text": {"content": title}}]}}
+        if children:
+            body["children"] = children
+        resp = http_request("POST", base_url + "/pages", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Notion create page failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_page(page_id, properties):
+        body = {"properties": properties}
+        resp = http_request("PATCH", base_url + "/pages/" + page_id, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Notion update page failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_page(page_id):
+        body = {"archived": True}
+        resp = http_request("PATCH", base_url + "/pages/" + page_id, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Notion delete page failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_database(database_id):
+        resp = http_request("GET", base_url + "/databases/" + database_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Notion get database failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _query_database(database_id, filter=None, sorts=None, page_size=100):
+        body = {"page_size": page_size}
+        if filter:
+            body["filter"] = filter
+        if sorts:
+            body["sorts"] = sorts
+        resp = http_request("POST", base_url + "/databases/" + database_id + "/query", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Notion query database failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_block_children(block_id, page_size=100):
+        resp = http_request("GET", base_url + "/blocks/" + block_id + "/children?page_size=" + str(page_size), headers=_headers())
+        if resp.status >= 400:
+            fail("Notion get block children failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _append_block_children(block_id, children):
+        body = {"children": children}
+        resp = http_request("PATCH", base_url + "/blocks/" + block_id + "/children", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Notion append block children failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "search": _search,
+        "get_page": _get_page,
+        "create_page": _create_page,
+        "update_page": _update_page,
+        "delete_page": _delete_page,
+        "get_database": _get_database,
+        "query_database": _query_database,
+        "get_block_children": _get_block_children,
+        "append_block_children": _append_block_children,
+    }
+
+
+def Airtable(api_key=None):
+    """
+    Create an Airtable client for productivity operations.
+
+    Args:
+        api_key: Airtable API key (defaults to AIRTABLE_API_KEY env var)
+
+    Returns:
+        An Airtable client struct with methods for Airtable operations.
+    """
+    key = api_key if api_key else env("AIRTABLE_API_KEY")
+    if not key:
+        fail("Airtable API key not found. Set AIRTABLE_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.airtable.com/v0"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json"
+        }
+
+    def _list_records(base_id, table_name, view=None, max_records=None, filter_formula=None):
+        url = base_url + "/" + base_id + "/" + url_encode(table_name)
+        params = []
+        if view:
+            params.append("view=" + url_encode(view))
+        if max_records:
+            params.append("maxRecords=" + str(max_records))
+        if filter_formula:
+            params.append("filterByFormula=" + url_encode(filter_formula))
+        if params:
+            url = url + "?" + "&".join(params)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Airtable list records failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_record(base_id, table_name, record_id):
+        resp = http_request("GET", base_url + "/" + base_id + "/" + url_encode(table_name) + "/" + record_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Airtable get record failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_record(base_id, table_name, fields):
+        body = {"fields": fields}
+        resp = http_request("POST", base_url + "/" + base_id + "/" + url_encode(table_name), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Airtable create record failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_records(base_id, table_name, records):
+        body = {"records": [{"fields": r} for r in records]}
+        resp = http_request("POST", base_url + "/" + base_id + "/" + url_encode(table_name), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Airtable create records failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_record(base_id, table_name, record_id, fields):
+        body = {"fields": fields}
+        resp = http_request("PATCH", base_url + "/" + base_id + "/" + url_encode(table_name) + "/" + record_id, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Airtable update record failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_record(base_id, table_name, record_id):
+        resp = http_request("DELETE", base_url + "/" + base_id + "/" + url_encode(table_name) + "/" + record_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Airtable delete record failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_bases():
+        resp = http_request("GET", "https://api.airtable.com/v0/meta/bases", headers=_headers())
+        if resp.status >= 400:
+            fail("Airtable list bases failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_base_schema(base_id):
+        resp = http_request("GET", "https://api.airtable.com/v0/meta/bases/" + base_id + "/tables", headers=_headers())
+        if resp.status >= 400:
+            fail("Airtable get base schema failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_records": _list_records,
+        "get_record": _get_record,
+        "create_record": _create_record,
+        "create_records": _create_records,
+        "update_record": _update_record,
+        "delete_record": _delete_record,
+        "list_bases": _list_bases,
+        "get_base_schema": _get_base_schema,
+    }
+
+
+def GoogleSheets(credentials=None):
+    """
+    Create a Google Sheets client for spreadsheet operations.
+
+    Args:
+        credentials: Google service account credentials JSON (defaults to GOOGLE_CREDENTIALS env var)
+
+    Returns:
+        A Google Sheets client struct with methods for spreadsheet operations.
+    """
+    creds = credentials if credentials else env("GOOGLE_CREDENTIALS")
+    if not creds:
+        fail("Google credentials not found. Set GOOGLE_CREDENTIALS or provide credentials parameter")
+
+    creds_data = json_decode(creds) if type(creds) == "string" else creds
+    access_token = None
+
+    def _get_token():
+        fail("Google Sheets requires OAuth2 token. Use GOOGLE_ACCESS_TOKEN env var")
+
+    token = env("GOOGLE_ACCESS_TOKEN")
+    if not token:
+        fail("Google access token not found. Set GOOGLE_ACCESS_TOKEN env var")
+
+    base_url = "https://sheets.googleapis.com/v4/spreadsheets"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+        }
+
+    def _get_spreadsheet(spreadsheet_id):
+        resp = http_request("GET", base_url + "/" + spreadsheet_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Google Sheets get spreadsheet failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_values(spreadsheet_id, range_name):
+        resp = http_request("GET", base_url + "/" + spreadsheet_id + "/values/" + url_encode(range_name), headers=_headers())
+        if resp.status >= 400:
+            fail("Google Sheets get values failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_values(spreadsheet_id, range_name, values, value_input_option="USER_ENTERED"):
+        body = {"values": values}
+        url = base_url + "/" + spreadsheet_id + "/values/" + url_encode(range_name) + "?valueInputOption=" + value_input_option
+        resp = http_request("PUT", url, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Google Sheets update values failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _append_values(spreadsheet_id, range_name, values, value_input_option="USER_ENTERED"):
+        body = {"values": values}
+        url = base_url + "/" + spreadsheet_id + "/values/" + url_encode(range_name) + ":append?valueInputOption=" + value_input_option
+        resp = http_request("POST", url, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Google Sheets append values failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _clear_values(spreadsheet_id, range_name):
+        url = base_url + "/" + spreadsheet_id + "/values/" + url_encode(range_name) + ":clear"
+        resp = http_request("POST", url, headers=_headers(), body="{}")
+        if resp.status >= 400:
+            fail("Google Sheets clear values failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _batch_get(spreadsheet_id, ranges):
+        ranges_param = "&ranges=".join([url_encode(r) for r in ranges])
+        url = base_url + "/" + spreadsheet_id + "/values:batchGet?ranges=" + ranges_param
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Google Sheets batch get failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _batch_update(spreadsheet_id, data, value_input_option="USER_ENTERED"):
+        body = {
+            "valueInputOption": value_input_option,
+            "data": data
+        }
+        url = base_url + "/" + spreadsheet_id + "/values:batchUpdate"
+        resp = http_request("POST", url, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Google Sheets batch update failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "get_spreadsheet": _get_spreadsheet,
+        "get_values": _get_values,
+        "update_values": _update_values,
+        "append_values": _append_values,
+        "clear_values": _clear_values,
+        "batch_get": _batch_get,
+        "batch_update": _batch_update,
+    }
+
+
+def GoogleCalendar(access_token=None):
+    """
+    Create a Google Calendar client for calendar operations.
+
+    Args:
+        access_token: Google OAuth access token (defaults to GOOGLE_ACCESS_TOKEN env var)
+
+    Returns:
+        A Google Calendar client struct with methods for calendar operations.
+    """
+    token = access_token if access_token else env("GOOGLE_ACCESS_TOKEN")
+    if not token:
+        fail("Google access token not found. Set GOOGLE_ACCESS_TOKEN or provide access_token parameter")
+
+    base_url = "https://www.googleapis.com/calendar/v3"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+        }
+
+    def _list_calendars():
+        resp = http_request("GET", base_url + "/users/me/calendarList", headers=_headers())
+        if resp.status >= 400:
+            fail("Google Calendar list calendars failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_events(calendar_id="primary", time_min=None, time_max=None, max_results=250):
+        url = base_url + "/calendars/" + url_encode(calendar_id) + "/events?maxResults=" + str(max_results)
+        if time_min:
+            url = url + "&timeMin=" + url_encode(time_min)
+        if time_max:
+            url = url + "&timeMax=" + url_encode(time_max)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Google Calendar list events failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_event(calendar_id, event_id):
+        resp = http_request("GET", base_url + "/calendars/" + url_encode(calendar_id) + "/events/" + event_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Google Calendar get event failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_event(calendar_id, summary, start, end, description=None, location=None, attendees=None):
+        event = {
+            "summary": summary,
+            "start": start,
+            "end": end
+        }
+        if description:
+            event["description"] = description
+        if location:
+            event["location"] = location
+        if attendees:
+            event["attendees"] = [{"email": a} for a in attendees]
+        resp = http_request("POST", base_url + "/calendars/" + url_encode(calendar_id) + "/events", headers=_headers(), body=json_encode(event))
+        if resp.status >= 400:
+            fail("Google Calendar create event failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_event(calendar_id, event_id, summary=None, start=None, end=None, description=None, location=None):
+        event = {}
+        if summary:
+            event["summary"] = summary
+        if start:
+            event["start"] = start
+        if end:
+            event["end"] = end
+        if description:
+            event["description"] = description
+        if location:
+            event["location"] = location
+        resp = http_request("PATCH", base_url + "/calendars/" + url_encode(calendar_id) + "/events/" + event_id, headers=_headers(), body=json_encode(event))
+        if resp.status >= 400:
+            fail("Google Calendar update event failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_event(calendar_id, event_id):
+        resp = http_request("DELETE", base_url + "/calendars/" + url_encode(calendar_id) + "/events/" + event_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Google Calendar delete event failed: " + resp.body)
+        return {"deleted": True}
+
+    return {
+        "list_calendars": _list_calendars,
+        "list_events": _list_events,
+        "get_event": _get_event,
+        "create_event": _create_event,
+        "update_event": _update_event,
+        "delete_event": _delete_event,
+    }

@@ -1,0 +1,411 @@
+def GitHub(token=None):
+    """
+    Create a GitHub client for repository and issue management.
+
+    Args:
+        token: GitHub personal access token (defaults to GITHUB_TOKEN env var)
+
+    Returns:
+        A GitHub client struct with methods for GitHub operations.
+
+    Example:
+        gh = GitHub()
+        repos = gh.list_repos("username")
+        issue = gh.create_issue("owner", "repo", "Bug report", "Description")
+    """
+    tok = token if token else env("GITHUB_TOKEN")
+    if not tok:
+        fail("GitHub token not found. Set GITHUB_TOKEN or provide token parameter")
+
+    base_url = "https://api.github.com"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + tok,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+        }
+
+    def _list_repos(user=None, org=None, type="all", sort="updated", per_page=30):
+        if org:
+            url = base_url + "/orgs/" + org + "/repos"
+        elif user:
+            url = base_url + "/users/" + user + "/repos"
+        else:
+            url = base_url + "/user/repos"
+        url = url + "?type=" + type + "&sort=" + sort + "&per_page=" + str(per_page)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub list repos failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_repo(owner, repo):
+        resp = http_request("GET", base_url + "/repos/" + owner + "/" + repo, headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub get repo failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_repo(name, description=None, private=False, auto_init=False):
+        body = {"name": name, "private": private, "auto_init": auto_init}
+        if description:
+            body["description"] = description
+        resp = http_request("POST", base_url + "/user/repos", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitHub create repo failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_file(owner, repo, path, ref=None):
+        url = base_url + "/repos/" + owner + "/" + repo + "/contents/" + path
+        if ref:
+            url = url + "?ref=" + ref
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub get file failed: " + resp.body)
+        data = json_decode(resp.body)
+        if "content" in data:
+            data["decoded_content"] = base64_decode(data["content"].replace("\n", ""))
+        return data
+
+    def _create_or_update_file(owner, repo, path, content, message, branch=None, sha=None):
+        body = {
+            "message": message,
+            "content": base64_encode(content)
+        }
+        if branch:
+            body["branch"] = branch
+        if sha:
+            body["sha"] = sha
+        resp = http_request("PUT", base_url + "/repos/" + owner + "/" + repo + "/contents/" + path, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitHub create/update file failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_branches(owner, repo, per_page=30):
+        resp = http_request("GET", base_url + "/repos/" + owner + "/" + repo + "/branches?per_page=" + str(per_page), headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub list branches failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_branch(owner, repo, branch, from_branch="main"):
+        ref_resp = http_request("GET", base_url + "/repos/" + owner + "/" + repo + "/git/ref/heads/" + from_branch, headers=_headers())
+        if ref_resp.status >= 400:
+            fail("GitHub get ref failed: " + ref_resp.body)
+        sha = json_decode(ref_resp.body)["object"]["sha"]
+        body = {"ref": "refs/heads/" + branch, "sha": sha}
+        resp = http_request("POST", base_url + "/repos/" + owner + "/" + repo + "/git/refs", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitHub create branch failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_commits(owner, repo, sha=None, per_page=30):
+        url = base_url + "/repos/" + owner + "/" + repo + "/commits?per_page=" + str(per_page)
+        if sha:
+            url = url + "&sha=" + sha
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub list commits failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_issue(owner, repo, title, body_text=None, labels=None, assignees=None):
+        body = {"title": title}
+        if body_text:
+            body["body"] = body_text
+        if labels:
+            body["labels"] = labels
+        if assignees:
+            body["assignees"] = assignees
+        resp = http_request("POST", base_url + "/repos/" + owner + "/" + repo + "/issues", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitHub create issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_issue(owner, repo, issue_number):
+        resp = http_request("GET", base_url + "/repos/" + owner + "/" + repo + "/issues/" + str(issue_number), headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub get issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_issue(owner, repo, issue_number, title=None, body_text=None, state=None, labels=None):
+        data = {}
+        if title:
+            data["title"] = title
+        if body_text:
+            data["body"] = body_text
+        if state:
+            data["state"] = state
+        if labels:
+            data["labels"] = labels
+        resp = http_request("PATCH", base_url + "/repos/" + owner + "/" + repo + "/issues/" + str(issue_number), headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("GitHub update issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_issues(owner, repo, state="open", labels=None, per_page=30):
+        url = base_url + "/repos/" + owner + "/" + repo + "/issues?state=" + state + "&per_page=" + str(per_page)
+        if labels:
+            url = url + "&labels=" + ",".join(labels)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub list issues failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_pr(owner, repo, title, head, base, body_text=None, draft=False):
+        data = {"title": title, "head": head, "base": base, "draft": draft}
+        if body_text:
+            data["body"] = body_text
+        resp = http_request("POST", base_url + "/repos/" + owner + "/" + repo + "/pulls", headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("GitHub create PR failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_pr(owner, repo, pr_number):
+        resp = http_request("GET", base_url + "/repos/" + owner + "/" + repo + "/pulls/" + str(pr_number), headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub get PR failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _merge_pr(owner, repo, pr_number, commit_title=None, merge_method="merge"):
+        data = {"merge_method": merge_method}
+        if commit_title:
+            data["commit_title"] = commit_title
+        resp = http_request("PUT", base_url + "/repos/" + owner + "/" + repo + "/pulls/" + str(pr_number) + "/merge", headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("GitHub merge PR failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _add_comment(owner, repo, issue_number, body_text):
+        data = {"body": body_text}
+        resp = http_request("POST", base_url + "/repos/" + owner + "/" + repo + "/issues/" + str(issue_number) + "/comments", headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("GitHub add comment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_workflows(owner, repo):
+        resp = http_request("GET", base_url + "/repos/" + owner + "/" + repo + "/actions/workflows", headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub list workflows failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _trigger_workflow(owner, repo, workflow_id, ref, inputs=None):
+        data = {"ref": ref}
+        if inputs:
+            data["inputs"] = inputs
+        resp = http_request("POST", base_url + "/repos/" + owner + "/" + repo + "/actions/workflows/" + str(workflow_id) + "/dispatches", headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("GitHub trigger workflow failed: " + resp.body)
+        return {"triggered": True}
+
+    def _list_workflow_runs(owner, repo, workflow_id=None, status=None, per_page=30):
+        if workflow_id:
+            url = base_url + "/repos/" + owner + "/" + repo + "/actions/workflows/" + str(workflow_id) + "/runs"
+        else:
+            url = base_url + "/repos/" + owner + "/" + repo + "/actions/runs"
+        url = url + "?per_page=" + str(per_page)
+        if status:
+            url = url + "&status=" + status
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("GitHub list workflow runs failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_repos": _list_repos,
+        "get_repo": _get_repo,
+        "create_repo": _create_repo,
+        "get_file": _get_file,
+        "create_or_update_file": _create_or_update_file,
+        "list_branches": _list_branches,
+        "create_branch": _create_branch,
+        "list_commits": _list_commits,
+        "create_issue": _create_issue,
+        "get_issue": _get_issue,
+        "update_issue": _update_issue,
+        "list_issues": _list_issues,
+        "create_pr": _create_pr,
+        "get_pr": _get_pr,
+        "merge_pr": _merge_pr,
+        "add_comment": _add_comment,
+        "list_workflows": _list_workflows,
+        "trigger_workflow": _trigger_workflow,
+        "list_workflow_runs": _list_workflow_runs,
+    }
+
+
+def GitLab(token=None, base_url=None):
+    """
+    Create a GitLab client for repository and issue management.
+
+    Args:
+        token: GitLab personal access token (defaults to GITLAB_TOKEN env var)
+        base_url: GitLab instance URL (defaults to https://gitlab.com)
+
+    Returns:
+        A GitLab client struct with methods for GitLab operations.
+    """
+    tok = token if token else env("GITLAB_TOKEN")
+    url = base_url if base_url else env("GITLAB_URL")
+    if not url:
+        url = "https://gitlab.com"
+    if not tok:
+        fail("GitLab token not found. Set GITLAB_TOKEN or provide token parameter")
+
+    api_url = url + "/api/v4"
+
+    def _headers():
+        return {
+            "PRIVATE-TOKEN": tok,
+            "Content-Type": "application/json"
+        }
+
+    def _encode_project(project):
+        return project.replace("/", "%2F")
+
+    def _list_projects(owned=True, per_page=20):
+        params = "?per_page=" + str(per_page)
+        if owned:
+            params = params + "&owned=true"
+        resp = http_request("GET", api_url + "/projects" + params, headers=_headers())
+        if resp.status >= 400:
+            fail("GitLab list projects failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_project(project):
+        resp = http_request("GET", api_url + "/projects/" + _encode_project(project), headers=_headers())
+        if resp.status >= 400:
+            fail("GitLab get project failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_project(name, description=None, visibility="private"):
+        body = {"name": name, "visibility": visibility}
+        if description:
+            body["description"] = description
+        resp = http_request("POST", api_url + "/projects", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitLab create project failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_file(project, path, ref="main"):
+        file_path = path.replace("/", "%2F")
+        resp = http_request("GET", api_url + "/projects/" + _encode_project(project) + "/repository/files/" + file_path + "?ref=" + ref, headers=_headers())
+        if resp.status >= 400:
+            fail("GitLab get file failed: " + resp.body)
+        data = json_decode(resp.body)
+        if "content" in data:
+            data["decoded_content"] = base64_decode(data["content"])
+        return data
+
+    def _create_or_update_file(project, path, content, message, branch="main"):
+        file_path = path.replace("/", "%2F")
+        body = {
+            "branch": branch,
+            "content": content,
+            "commit_message": message
+        }
+        get_resp = http_request("GET", api_url + "/projects/" + _encode_project(project) + "/repository/files/" + file_path + "?ref=" + branch, headers=_headers())
+        if get_resp.status == 200:
+            resp = http_request("PUT", api_url + "/projects/" + _encode_project(project) + "/repository/files/" + file_path, headers=_headers(), body=json_encode(body))
+        else:
+            resp = http_request("POST", api_url + "/projects/" + _encode_project(project) + "/repository/files/" + file_path, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitLab create/update file failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_branches(project, per_page=20):
+        resp = http_request("GET", api_url + "/projects/" + _encode_project(project) + "/repository/branches?per_page=" + str(per_page), headers=_headers())
+        if resp.status >= 400:
+            fail("GitLab list branches failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_branch(project, branch, ref="main"):
+        body = {"branch": branch, "ref": ref}
+        resp = http_request("POST", api_url + "/projects/" + _encode_project(project) + "/repository/branches", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitLab create branch failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_issue(project, title, description=None, labels=None, assignee_ids=None):
+        body = {"title": title}
+        if description:
+            body["description"] = description
+        if labels:
+            body["labels"] = ",".join(labels)
+        if assignee_ids:
+            body["assignee_ids"] = assignee_ids
+        resp = http_request("POST", api_url + "/projects/" + _encode_project(project) + "/issues", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitLab create issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_issue(project, issue_iid):
+        resp = http_request("GET", api_url + "/projects/" + _encode_project(project) + "/issues/" + str(issue_iid), headers=_headers())
+        if resp.status >= 400:
+            fail("GitLab get issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_issue(project, issue_iid, title=None, description=None, state_event=None):
+        body = {}
+        if title:
+            body["title"] = title
+        if description:
+            body["description"] = description
+        if state_event:
+            body["state_event"] = state_event
+        resp = http_request("PUT", api_url + "/projects/" + _encode_project(project) + "/issues/" + str(issue_iid), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitLab update issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_mr(project, title, source_branch, target_branch, description=None):
+        body = {
+            "title": title,
+            "source_branch": source_branch,
+            "target_branch": target_branch
+        }
+        if description:
+            body["description"] = description
+        resp = http_request("POST", api_url + "/projects/" + _encode_project(project) + "/merge_requests", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitLab create MR failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _merge_mr(project, mr_iid, squash=False):
+        body = {"squash": squash}
+        resp = http_request("PUT", api_url + "/projects/" + _encode_project(project) + "/merge_requests/" + str(mr_iid) + "/merge", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitLab merge MR failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_pipelines(project, status=None, per_page=20):
+        url = api_url + "/projects/" + _encode_project(project) + "/pipelines?per_page=" + str(per_page)
+        if status:
+            url = url + "&status=" + status
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("GitLab list pipelines failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _trigger_pipeline(project, ref, variables=None):
+        body = {"ref": ref}
+        if variables:
+            body["variables"] = variables
+        resp = http_request("POST", api_url + "/projects/" + _encode_project(project) + "/pipeline", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("GitLab trigger pipeline failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_projects": _list_projects,
+        "get_project": _get_project,
+        "create_project": _create_project,
+        "get_file": _get_file,
+        "create_or_update_file": _create_or_update_file,
+        "list_branches": _list_branches,
+        "create_branch": _create_branch,
+        "create_issue": _create_issue,
+        "get_issue": _get_issue,
+        "update_issue": _update_issue,
+        "create_mr": _create_mr,
+        "merge_mr": _merge_mr,
+        "list_pipelines": _list_pipelines,
+        "trigger_pipeline": _trigger_pipeline,
+    }

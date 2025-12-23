@@ -1,0 +1,529 @@
+def Twilio(account_sid=None, auth_token=None):
+    """
+    Create a Twilio client for SMS and voice.
+
+    Args:
+        account_sid: Twilio account SID (defaults to TWILIO_ACCOUNT_SID env var)
+        auth_token: Twilio auth token (defaults to TWILIO_AUTH_TOKEN env var)
+
+    Returns:
+        A Twilio client struct with methods for SMS and voice operations.
+
+    Example:
+        twilio = Twilio()
+        twilio.send_sms("+1234567890", "+0987654321", "Hello!")
+    """
+    sid = account_sid if account_sid else env("TWILIO_ACCOUNT_SID")
+    token = auth_token if auth_token else env("TWILIO_AUTH_TOKEN")
+    if not sid:
+        fail("Twilio account SID not found. Set TWILIO_ACCOUNT_SID or provide account_sid parameter")
+    if not token:
+        fail("Twilio auth token not found. Set TWILIO_AUTH_TOKEN or provide auth_token parameter")
+
+    base_url = "https://api.twilio.com/2010-04-01/Accounts/" + sid
+
+    def _headers():
+        auth = base64_encode(sid + ":" + token)
+        return {
+            "Authorization": "Basic " + auth,
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+
+    def _encode_params(params):
+        parts = []
+        for k in params:
+            if params[k] != None:
+                parts.append(k + "=" + url_encode(str(params[k])))
+        return "&".join(parts)
+
+    def _send_sms(to, from_number, body, media_url=None):
+        params = {
+            "To": to,
+            "From": from_number,
+            "Body": body
+        }
+        if media_url:
+            params["MediaUrl"] = media_url
+        resp = http_request("POST", base_url + "/Messages.json", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Twilio SMS failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_message(message_sid):
+        resp = http_request("GET", base_url + "/Messages/" + message_sid + ".json", headers=_headers())
+        if resp.status >= 400:
+            fail("Twilio get message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_messages(to=None, from_number=None, limit=None):
+        params = {}
+        if to:
+            params["To"] = to
+        if from_number:
+            params["From"] = from_number
+        if limit:
+            params["PageSize"] = limit
+        query = _encode_params(params)
+        url = base_url + "/Messages.json"
+        if query:
+            url = url + "?" + query
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Twilio list messages failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _make_call(to, from_number, url=None, twiml=None):
+        params = {
+            "To": to,
+            "From": from_number
+        }
+        if url:
+            params["Url"] = url
+        if twiml:
+            params["Twiml"] = twiml
+        resp = http_request("POST", base_url + "/Calls.json", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Twilio call failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _send_whatsapp(to, from_number, body, media_url=None):
+        params = {
+            "To": "whatsapp:" + to,
+            "From": "whatsapp:" + from_number,
+            "Body": body
+        }
+        if media_url:
+            params["MediaUrl"] = media_url
+        resp = http_request("POST", base_url + "/Messages.json", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Twilio WhatsApp failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "send_sms": _send_sms,
+        "get_message": _get_message,
+        "list_messages": _list_messages,
+        "make_call": _make_call,
+        "send_whatsapp": _send_whatsapp,
+    }
+
+
+def SendGrid(api_key=None):
+    """
+    Create a SendGrid client for email.
+
+    Args:
+        api_key: SendGrid API key (defaults to SENDGRID_API_KEY env var)
+
+    Returns:
+        A SendGrid client struct with methods for email operations.
+
+    Example:
+        sg = SendGrid()
+        sg.send_email("from@example.com", "to@example.com", "Subject", "Body text")
+    """
+    key = api_key if api_key else env("SENDGRID_API_KEY")
+    if not key:
+        fail("SendGrid API key not found. Set SENDGRID_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.sendgrid.com/v3"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json"
+        }
+
+    def _send_email(from_email, to_email, subject, text=None, html=None, from_name=None, reply_to=None):
+        body = {
+            "personalizations": [{"to": [{"email": to_email}]}],
+            "from": {"email": from_email},
+            "subject": subject
+        }
+        if from_name:
+            body["from"]["name"] = from_name
+        if reply_to:
+            body["reply_to"] = {"email": reply_to}
+        content = []
+        if text:
+            content.append({"type": "text/plain", "value": text})
+        if html:
+            content.append({"type": "text/html", "value": html})
+        if content:
+            body["content"] = content
+        resp = http_request("POST", base_url + "/mail/send", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("SendGrid send failed: " + resp.body)
+        return {"status": "sent", "to": to_email}
+
+    def _send_template(from_email, to_email, template_id, dynamic_data=None, from_name=None):
+        body = {
+            "personalizations": [{"to": [{"email": to_email}]}],
+            "from": {"email": from_email},
+            "template_id": template_id
+        }
+        if from_name:
+            body["from"]["name"] = from_name
+        if dynamic_data:
+            body["personalizations"][0]["dynamic_template_data"] = dynamic_data
+        resp = http_request("POST", base_url + "/mail/send", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("SendGrid template send failed: " + resp.body)
+        return {"status": "sent", "to": to_email, "template_id": template_id}
+
+    return {
+        "send_email": _send_email,
+        "send_template": _send_template,
+    }
+
+
+def Resend(api_key=None):
+    """
+    Create a Resend client for email.
+
+    Args:
+        api_key: Resend API key (defaults to RESEND_API_KEY env var)
+
+    Returns:
+        A Resend client struct with methods for email operations.
+    """
+    key = api_key if api_key else env("RESEND_API_KEY")
+    if not key:
+        fail("Resend API key not found. Set RESEND_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.resend.com"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json"
+        }
+
+    def _send_email(from_email, to_email, subject, text=None, html=None, reply_to=None):
+        body = {
+            "from": from_email,
+            "to": [to_email] if type(to_email) == "string" else to_email,
+            "subject": subject
+        }
+        if text:
+            body["text"] = text
+        if html:
+            body["html"] = html
+        if reply_to:
+            body["reply_to"] = reply_to
+        resp = http_request("POST", base_url + "/emails", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Resend send failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_email(email_id):
+        resp = http_request("GET", base_url + "/emails/" + email_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Resend get email failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "send_email": _send_email,
+        "get_email": _get_email,
+    }
+
+
+def Slack(token=None):
+    """
+    Create a Slack client for messaging.
+
+    Args:
+        token: Slack bot token (defaults to SLACK_TOKEN env var)
+
+    Returns:
+        A Slack client struct with methods for messaging operations.
+    """
+    tok = token if token else env("SLACK_TOKEN")
+    if not tok:
+        fail("Slack token not found. Set SLACK_TOKEN or provide token parameter")
+
+    base_url = "https://slack.com/api"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + tok,
+            "Content-Type": "application/json"
+        }
+
+    def _send_message(channel, text, blocks=None, thread_ts=None):
+        body = {
+            "channel": channel,
+            "text": text
+        }
+        if blocks:
+            body["blocks"] = blocks
+        if thread_ts:
+            body["thread_ts"] = thread_ts
+        resp = http_request("POST", base_url + "/chat.postMessage", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Slack send message failed: " + resp.body)
+        data = json_decode(resp.body)
+        if not data.get("ok", False):
+            fail("Slack send message failed: " + data.get("error", "unknown error"))
+        return data
+
+    def _update_message(channel, ts, text, blocks=None):
+        body = {
+            "channel": channel,
+            "ts": ts,
+            "text": text
+        }
+        if blocks:
+            body["blocks"] = blocks
+        resp = http_request("POST", base_url + "/chat.update", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Slack update message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_message(channel, ts):
+        body = {
+            "channel": channel,
+            "ts": ts
+        }
+        resp = http_request("POST", base_url + "/chat.delete", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Slack delete message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_channels(limit=None):
+        params = {}
+        if limit:
+            params["limit"] = limit
+        query = ""
+        if params:
+            parts = []
+            for k in params:
+                parts.append(k + "=" + str(params[k]))
+            query = "?" + "&".join(parts)
+        resp = http_request("GET", base_url + "/conversations.list" + query, headers=_headers())
+        if resp.status >= 400:
+            fail("Slack list channels failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _upload_file(channels, content, filename, title=None):
+        body = {
+            "channels": channels,
+            "content": content,
+            "filename": filename
+        }
+        if title:
+            body["title"] = title
+        resp = http_request("POST", base_url + "/files.upload", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Slack upload file failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "send_message": _send_message,
+        "update_message": _update_message,
+        "delete_message": _delete_message,
+        "list_channels": _list_channels,
+        "upload_file": _upload_file,
+    }
+
+
+def Discord(token=None):
+    """
+    Create a Discord client for messaging.
+
+    Args:
+        token: Discord bot token (defaults to DISCORD_TOKEN env var)
+
+    Returns:
+        A Discord client struct with methods for messaging operations.
+    """
+    tok = token if token else env("DISCORD_TOKEN")
+    if not tok:
+        fail("Discord token not found. Set DISCORD_TOKEN or provide token parameter")
+
+    base_url = "https://discord.com/api/v10"
+
+    def _headers():
+        return {
+            "Authorization": "Bot " + tok,
+            "Content-Type": "application/json"
+        }
+
+    def _send_message(channel_id, content, embeds=None):
+        body = {"content": content}
+        if embeds:
+            body["embeds"] = embeds
+        resp = http_request("POST", base_url + "/channels/" + channel_id + "/messages", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Discord send message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _edit_message(channel_id, message_id, content, embeds=None):
+        body = {"content": content}
+        if embeds:
+            body["embeds"] = embeds
+        resp = http_request("PATCH", base_url + "/channels/" + channel_id + "/messages/" + message_id, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Discord edit message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_message(channel_id, message_id):
+        resp = http_request("DELETE", base_url + "/channels/" + channel_id + "/messages/" + message_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Discord delete message failed: " + resp.body)
+        return {"deleted": True}
+
+    def _get_channel(channel_id):
+        resp = http_request("GET", base_url + "/channels/" + channel_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Discord get channel failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "send_message": _send_message,
+        "edit_message": _edit_message,
+        "delete_message": _delete_message,
+        "get_channel": _get_channel,
+    }
+
+
+def Telegram(token=None):
+    """
+    Create a Telegram client for messaging.
+
+    Args:
+        token: Telegram bot token (defaults to TELEGRAM_BOT_TOKEN env var)
+
+    Returns:
+        A Telegram client struct with methods for messaging operations.
+    """
+    tok = token if token else env("TELEGRAM_BOT_TOKEN")
+    if not tok:
+        fail("Telegram bot token not found. Set TELEGRAM_BOT_TOKEN or provide token parameter")
+
+    base_url = "https://api.telegram.org/bot" + tok
+
+    def _headers():
+        return {"Content-Type": "application/json"}
+
+    def _send_message(chat_id, text, parse_mode=None, reply_to=None):
+        body = {
+            "chat_id": chat_id,
+            "text": text
+        }
+        if parse_mode:
+            body["parse_mode"] = parse_mode
+        if reply_to:
+            body["reply_to_message_id"] = reply_to
+        resp = http_request("POST", base_url + "/sendMessage", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Telegram send message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _edit_message(chat_id, message_id, text, parse_mode=None):
+        body = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text
+        }
+        if parse_mode:
+            body["parse_mode"] = parse_mode
+        resp = http_request("POST", base_url + "/editMessageText", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Telegram edit message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_message(chat_id, message_id):
+        body = {
+            "chat_id": chat_id,
+            "message_id": message_id
+        }
+        resp = http_request("POST", base_url + "/deleteMessage", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Telegram delete message failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _send_photo(chat_id, photo_url, caption=None):
+        body = {
+            "chat_id": chat_id,
+            "photo": photo_url
+        }
+        if caption:
+            body["caption"] = caption
+        resp = http_request("POST", base_url + "/sendPhoto", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Telegram send photo failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_updates(offset=None, limit=None):
+        body = {}
+        if offset:
+            body["offset"] = offset
+        if limit:
+            body["limit"] = limit
+        resp = http_request("POST", base_url + "/getUpdates", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Telegram get updates failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "send_message": _send_message,
+        "edit_message": _edit_message,
+        "delete_message": _delete_message,
+        "send_photo": _send_photo,
+        "get_updates": _get_updates,
+    }
+
+
+def Mailgun(api_key=None, domain=None):
+    """
+    Create a Mailgun client for email.
+
+    Args:
+        api_key: Mailgun API key (defaults to MAILGUN_API_KEY env var)
+        domain: Mailgun domain (defaults to MAILGUN_DOMAIN env var)
+
+    Returns:
+        A Mailgun client struct with methods for email operations.
+    """
+    key = api_key if api_key else env("MAILGUN_API_KEY")
+    dom = domain if domain else env("MAILGUN_DOMAIN")
+    if not key:
+        fail("Mailgun API key not found. Set MAILGUN_API_KEY or provide api_key parameter")
+    if not dom:
+        fail("Mailgun domain not found. Set MAILGUN_DOMAIN or provide domain parameter")
+
+    base_url = "https://api.mailgun.net/v3/" + dom
+
+    def _headers():
+        auth = base64_encode("api:" + key)
+        return {
+            "Authorization": "Basic " + auth,
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+
+    def _encode_params(params):
+        parts = []
+        for k in params:
+            if params[k] != None:
+                parts.append(k + "=" + url_encode(str(params[k])))
+        return "&".join(parts)
+
+    def _send_email(from_email, to_email, subject, text=None, html=None):
+        params = {
+            "from": from_email,
+            "to": to_email,
+            "subject": subject
+        }
+        if text:
+            params["text"] = text
+        if html:
+            params["html"] = html
+        resp = http_request("POST", base_url + "/messages", headers=_headers(), body=_encode_params(params))
+        if resp.status >= 400:
+            fail("Mailgun send failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "send_email": _send_email,
+    }

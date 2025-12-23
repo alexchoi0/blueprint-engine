@@ -1,0 +1,282 @@
+def Plaid(client_id=None, secret=None, environment=None):
+    """
+    Create a Plaid client for banking operations.
+
+    Args:
+        client_id: Plaid client ID (defaults to PLAID_CLIENT_ID env var)
+        secret: Plaid secret (defaults to PLAID_SECRET env var)
+        environment: Plaid environment (sandbox, development, production - defaults to PLAID_ENV or sandbox)
+
+    Returns:
+        A Plaid client struct with methods for banking operations.
+
+    Example:
+        plaid = Plaid()
+        token = plaid.create_link_token("user-123")
+        accounts = plaid.get_accounts(access_token)
+    """
+    cid = client_id if client_id else env("PLAID_CLIENT_ID")
+    sec = secret if secret else env("PLAID_SECRET")
+    env_name = environment if environment else env("PLAID_ENV")
+    if not env_name:
+        env_name = "sandbox"
+    if not cid:
+        fail("Plaid client ID not found. Set PLAID_CLIENT_ID or provide client_id parameter")
+    if not sec:
+        fail("Plaid secret not found. Set PLAID_SECRET or provide secret parameter")
+
+    base_urls = {
+        "sandbox": "https://sandbox.plaid.com",
+        "development": "https://development.plaid.com",
+        "production": "https://production.plaid.com"
+    }
+    base_url = base_urls.get(env_name, base_urls["sandbox"])
+
+    def _headers():
+        return {"Content-Type": "application/json"}
+
+    def _request(endpoint, body):
+        body["client_id"] = cid
+        body["secret"] = sec
+        resp = http_request("POST", base_url + endpoint, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Plaid " + endpoint + " failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_link_token(user_id, products=None, country_codes=None, language="en"):
+        if not products:
+            products = ["transactions"]
+        if not country_codes:
+            country_codes = ["US"]
+        body = {
+            "user": {"client_user_id": user_id},
+            "client_name": "Blueprint App",
+            "products": products,
+            "country_codes": country_codes,
+            "language": language
+        }
+        return _request("/link/token/create", body)
+
+    def _exchange_public_token(public_token):
+        return _request("/item/public_token/exchange", {"public_token": public_token})
+
+    def _get_accounts(access_token):
+        return _request("/accounts/get", {"access_token": access_token})
+
+    def _get_balance(access_token, account_ids=None):
+        body = {"access_token": access_token}
+        if account_ids:
+            body["options"] = {"account_ids": account_ids}
+        return _request("/accounts/balance/get", body)
+
+    def _get_transactions(access_token, start_date, end_date, account_ids=None, count=100, offset=0):
+        body = {
+            "access_token": access_token,
+            "start_date": start_date,
+            "end_date": end_date,
+            "options": {"count": count, "offset": offset}
+        }
+        if account_ids:
+            body["options"]["account_ids"] = account_ids
+        return _request("/transactions/get", body)
+
+    def _sync_transactions(access_token, cursor=None, count=100):
+        body = {"access_token": access_token, "count": count}
+        if cursor:
+            body["cursor"] = cursor
+        return _request("/transactions/sync", body)
+
+    def _get_identity(access_token):
+        return _request("/identity/get", {"access_token": access_token})
+
+    def _get_auth(access_token):
+        return _request("/auth/get", {"access_token": access_token})
+
+    def _get_item(access_token):
+        return _request("/item/get", {"access_token": access_token})
+
+    def _remove_item(access_token):
+        return _request("/item/remove", {"access_token": access_token})
+
+    def _get_institutions(count=10, offset=0, country_codes=None):
+        if not country_codes:
+            country_codes = ["US"]
+        body = {
+            "count": count,
+            "offset": offset,
+            "country_codes": country_codes
+        }
+        return _request("/institutions/get", body)
+
+    def _search_institutions(query, products=None, country_codes=None):
+        if not country_codes:
+            country_codes = ["US"]
+        body = {
+            "query": query,
+            "country_codes": country_codes
+        }
+        if products:
+            body["products"] = products
+        return _request("/institutions/search", body)
+
+    def _create_payment(access_token, account_id, amount, currency="USD", description=None):
+        body = {
+            "access_token": access_token,
+            "account_id": account_id,
+            "amount": {"currency": currency, "value": amount}
+        }
+        if description:
+            body["description"] = description
+        return _request("/payment_initiation/payment/create", body)
+
+    return {
+        "create_link_token": _create_link_token,
+        "exchange_public_token": _exchange_public_token,
+        "get_accounts": _get_accounts,
+        "get_balance": _get_balance,
+        "get_transactions": _get_transactions,
+        "sync_transactions": _sync_transactions,
+        "get_identity": _get_identity,
+        "get_auth": _get_auth,
+        "get_item": _get_item,
+        "remove_item": _remove_item,
+        "get_institutions": _get_institutions,
+        "search_institutions": _search_institutions,
+        "create_payment": _create_payment,
+    }
+
+
+def TrueLayer(client_id=None, client_secret=None, environment=None):
+    """
+    Create a TrueLayer client for open banking operations.
+
+    Args:
+        client_id: TrueLayer client ID (defaults to TRUELAYER_CLIENT_ID env var)
+        client_secret: TrueLayer client secret (defaults to TRUELAYER_CLIENT_SECRET env var)
+        environment: TrueLayer environment (sandbox or live - defaults to TRUELAYER_ENV or sandbox)
+
+    Returns:
+        A TrueLayer client struct with methods for banking operations.
+    """
+    cid = client_id if client_id else env("TRUELAYER_CLIENT_ID")
+    secret = client_secret if client_secret else env("TRUELAYER_CLIENT_SECRET")
+    env_name = environment if environment else env("TRUELAYER_ENV")
+    if not env_name:
+        env_name = "sandbox"
+    if not cid:
+        fail("TrueLayer client ID not found. Set TRUELAYER_CLIENT_ID or provide client_id parameter")
+    if not secret:
+        fail("TrueLayer client secret not found. Set TRUELAYER_CLIENT_SECRET or provide client_secret parameter")
+
+    if env_name == "live":
+        auth_url = "https://auth.truelayer.com"
+        api_url = "https://api.truelayer.com"
+    else:
+        auth_url = "https://auth.truelayer-sandbox.com"
+        api_url = "https://api.truelayer-sandbox.com"
+
+    def _get_token(code, redirect_uri):
+        body = "grant_type=authorization_code&client_id=" + cid + "&client_secret=" + secret + "&code=" + code + "&redirect_uri=" + url_encode(redirect_uri)
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        resp = http_request("POST", auth_url + "/connect/token", headers=headers, body=body)
+        if resp.status >= 400:
+            fail("TrueLayer get token failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _refresh_token(refresh_token):
+        body = "grant_type=refresh_token&client_id=" + cid + "&client_secret=" + secret + "&refresh_token=" + refresh_token
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        resp = http_request("POST", auth_url + "/connect/token", headers=headers, body=body)
+        if resp.status >= 400:
+            fail("TrueLayer refresh token failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _headers(access_token):
+        return {
+            "Authorization": "Bearer " + access_token,
+            "Content-Type": "application/json"
+        }
+
+    def _get_accounts(access_token):
+        resp = http_request("GET", api_url + "/data/v1/accounts", headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get accounts failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_account(access_token, account_id):
+        resp = http_request("GET", api_url + "/data/v1/accounts/" + account_id, headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get account failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_balance(access_token, account_id):
+        resp = http_request("GET", api_url + "/data/v1/accounts/" + account_id + "/balance", headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get balance failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_transactions(access_token, account_id, from_date=None, to_date=None):
+        url = api_url + "/data/v1/accounts/" + account_id + "/transactions"
+        params = []
+        if from_date:
+            params.append("from=" + from_date)
+        if to_date:
+            params.append("to=" + to_date)
+        if params:
+            url = url + "?" + "&".join(params)
+        resp = http_request("GET", url, headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get transactions failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_pending_transactions(access_token, account_id):
+        resp = http_request("GET", api_url + "/data/v1/accounts/" + account_id + "/transactions/pending", headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get pending transactions failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_identity(access_token):
+        resp = http_request("GET", api_url + "/data/v1/info", headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get identity failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_cards(access_token):
+        resp = http_request("GET", api_url + "/data/v1/cards", headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get cards failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_card_balance(access_token, card_id):
+        resp = http_request("GET", api_url + "/data/v1/cards/" + card_id + "/balance", headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get card balance failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_card_transactions(access_token, card_id, from_date=None, to_date=None):
+        url = api_url + "/data/v1/cards/" + card_id + "/transactions"
+        params = []
+        if from_date:
+            params.append("from=" + from_date)
+        if to_date:
+            params.append("to=" + to_date)
+        if params:
+            url = url + "?" + "&".join(params)
+        resp = http_request("GET", url, headers=_headers(access_token))
+        if resp.status >= 400:
+            fail("TrueLayer get card transactions failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "get_token": _get_token,
+        "refresh_token": _refresh_token,
+        "get_accounts": _get_accounts,
+        "get_account": _get_account,
+        "get_balance": _get_balance,
+        "get_transactions": _get_transactions,
+        "get_pending_transactions": _get_pending_transactions,
+        "get_identity": _get_identity,
+        "get_cards": _get_cards,
+        "get_card_balance": _get_card_balance,
+        "get_card_transactions": _get_card_transactions,
+    }

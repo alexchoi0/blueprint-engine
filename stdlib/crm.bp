@@ -1,0 +1,427 @@
+def HubSpot(api_key=None):
+    """
+    Create a HubSpot CRM client.
+
+    Args:
+        api_key: HubSpot API key (defaults to HUBSPOT_API_KEY env var)
+
+    Returns:
+        A HubSpot client struct with methods for CRM operations.
+
+    Example:
+        hs = HubSpot()
+        contact = hs.create_contact("john@example.com", "John", "Doe")
+        hs.update_contact(contact["id"], {"phone": "+1234567890"})
+    """
+    key = api_key if api_key else env("HUBSPOT_API_KEY")
+    if not key:
+        fail("HubSpot API key not found. Set HUBSPOT_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.hubapi.com"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json"
+        }
+
+    def _create_contact(email, firstname=None, lastname=None, properties=None):
+        props = {"email": email}
+        if firstname:
+            props["firstname"] = firstname
+        if lastname:
+            props["lastname"] = lastname
+        if properties:
+            for k in properties:
+                props[k] = properties[k]
+        body = {"properties": props}
+        resp = http_request("POST", base_url + "/crm/v3/objects/contacts", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("HubSpot create contact failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_contact(contact_id, properties=None):
+        url = base_url + "/crm/v3/objects/contacts/" + str(contact_id)
+        if properties:
+            url = url + "?properties=" + ",".join(properties)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("HubSpot get contact failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_contact(contact_id, properties):
+        body = {"properties": properties}
+        resp = http_request("PATCH", base_url + "/crm/v3/objects/contacts/" + str(contact_id), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("HubSpot update contact failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_contact(contact_id):
+        resp = http_request("DELETE", base_url + "/crm/v3/objects/contacts/" + str(contact_id), headers=_headers())
+        if resp.status >= 400:
+            fail("HubSpot delete contact failed: " + resp.body)
+        return {"deleted": True}
+
+    def _search_contacts(query, properties=None, limit=None):
+        body = {"query": query}
+        if properties:
+            body["properties"] = properties
+        if limit:
+            body["limit"] = limit
+        resp = http_request("POST", base_url + "/crm/v3/objects/contacts/search", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("HubSpot search contacts failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_company(name, properties=None):
+        props = {"name": name}
+        if properties:
+            for k in properties:
+                props[k] = properties[k]
+        body = {"properties": props}
+        resp = http_request("POST", base_url + "/crm/v3/objects/companies", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("HubSpot create company failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_company(company_id, properties=None):
+        url = base_url + "/crm/v3/objects/companies/" + str(company_id)
+        if properties:
+            url = url + "?properties=" + ",".join(properties)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("HubSpot get company failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_deal(name, stage, pipeline=None, properties=None):
+        props = {"dealname": name, "dealstage": stage}
+        if pipeline:
+            props["pipeline"] = pipeline
+        if properties:
+            for k in properties:
+                props[k] = properties[k]
+        body = {"properties": props}
+        resp = http_request("POST", base_url + "/crm/v3/objects/deals", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("HubSpot create deal failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_deal(deal_id, properties):
+        body = {"properties": properties}
+        resp = http_request("PATCH", base_url + "/crm/v3/objects/deals/" + str(deal_id), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("HubSpot update deal failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_note(contact_id, body_text):
+        body = {
+            "properties": {"hs_note_body": body_text},
+            "associations": [{
+                "to": {"id": contact_id},
+                "types": [{"associationCategory": "HUBSPOT_DEFINED", "associationTypeId": 202}]
+            }]
+        }
+        resp = http_request("POST", base_url + "/crm/v3/objects/notes", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("HubSpot create note failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "create_contact": _create_contact,
+        "get_contact": _get_contact,
+        "update_contact": _update_contact,
+        "delete_contact": _delete_contact,
+        "search_contacts": _search_contacts,
+        "create_company": _create_company,
+        "get_company": _get_company,
+        "create_deal": _create_deal,
+        "update_deal": _update_deal,
+        "create_note": _create_note,
+    }
+
+
+def Salesforce(instance_url=None, access_token=None):
+    """
+    Create a Salesforce CRM client.
+
+    Args:
+        instance_url: Salesforce instance URL (defaults to SALESFORCE_INSTANCE_URL env var)
+        access_token: Salesforce access token (defaults to SALESFORCE_ACCESS_TOKEN env var)
+
+    Returns:
+        A Salesforce client struct with methods for CRM operations.
+    """
+    url = instance_url if instance_url else env("SALESFORCE_INSTANCE_URL")
+    token = access_token if access_token else env("SALESFORCE_ACCESS_TOKEN")
+    if not url:
+        fail("Salesforce instance URL not found. Set SALESFORCE_INSTANCE_URL or provide instance_url parameter")
+    if not token:
+        fail("Salesforce access token not found. Set SALESFORCE_ACCESS_TOKEN or provide access_token parameter")
+
+    base_url = url + "/services/data/v59.0"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+        }
+
+    def _create_record(sobject, data):
+        resp = http_request("POST", base_url + "/sobjects/" + sobject, headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("Salesforce create " + sobject + " failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_record(sobject, record_id, fields=None):
+        url = base_url + "/sobjects/" + sobject + "/" + record_id
+        if fields:
+            url = url + "?fields=" + ",".join(fields)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Salesforce get " + sobject + " failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_record(sobject, record_id, data):
+        resp = http_request("PATCH", base_url + "/sobjects/" + sobject + "/" + record_id, headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("Salesforce update " + sobject + " failed: " + resp.body)
+        return {"success": True}
+
+    def _delete_record(sobject, record_id):
+        resp = http_request("DELETE", base_url + "/sobjects/" + sobject + "/" + record_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Salesforce delete " + sobject + " failed: " + resp.body)
+        return {"deleted": True}
+
+    def _query(soql):
+        resp = http_request("GET", base_url + "/query?q=" + url_encode(soql), headers=_headers())
+        if resp.status >= 400:
+            fail("Salesforce query failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_contact(email, firstname=None, lastname=None, account_id=None, data=None):
+        record = {"Email": email}
+        if firstname:
+            record["FirstName"] = firstname
+        if lastname:
+            record["LastName"] = lastname
+        if account_id:
+            record["AccountId"] = account_id
+        if data:
+            for k in data:
+                record[k] = data[k]
+        return _create_record("Contact", record)
+
+    def _create_lead(email, lastname, company, data=None):
+        record = {"Email": email, "LastName": lastname, "Company": company}
+        if data:
+            for k in data:
+                record[k] = data[k]
+        return _create_record("Lead", record)
+
+    def _create_opportunity(name, stage, close_date, account_id=None, amount=None, data=None):
+        record = {"Name": name, "StageName": stage, "CloseDate": close_date}
+        if account_id:
+            record["AccountId"] = account_id
+        if amount:
+            record["Amount"] = amount
+        if data:
+            for k in data:
+                record[k] = data[k]
+        return _create_record("Opportunity", record)
+
+    return {
+        "create_record": _create_record,
+        "get_record": _get_record,
+        "update_record": _update_record,
+        "delete_record": _delete_record,
+        "query": _query,
+        "create_contact": _create_contact,
+        "create_lead": _create_lead,
+        "create_opportunity": _create_opportunity,
+    }
+
+
+def Pipedrive(api_key=None):
+    """
+    Create a Pipedrive CRM client.
+
+    Args:
+        api_key: Pipedrive API key (defaults to PIPEDRIVE_API_KEY env var)
+
+    Returns:
+        A Pipedrive client struct with methods for CRM operations.
+    """
+    key = api_key if api_key else env("PIPEDRIVE_API_KEY")
+    if not key:
+        fail("Pipedrive API key not found. Set PIPEDRIVE_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.pipedrive.com/v1"
+
+    def _headers():
+        return {"Content-Type": "application/json"}
+
+    def _url(path):
+        sep = "&" if "?" in path else "?"
+        return base_url + path + sep + "api_token=" + key
+
+    def _create_person(name, email=None, phone=None, org_id=None):
+        body = {"name": name}
+        if email:
+            body["email"] = [{"value": email, "primary": True}]
+        if phone:
+            body["phone"] = [{"value": phone, "primary": True}]
+        if org_id:
+            body["org_id"] = org_id
+        resp = http_request("POST", _url("/persons"), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Pipedrive create person failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_person(person_id):
+        resp = http_request("GET", _url("/persons/" + str(person_id)), headers=_headers())
+        if resp.status >= 400:
+            fail("Pipedrive get person failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_person(person_id, data):
+        resp = http_request("PUT", _url("/persons/" + str(person_id)), headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("Pipedrive update person failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_organization(name, data=None):
+        body = {"name": name}
+        if data:
+            for k in data:
+                body[k] = data[k]
+        resp = http_request("POST", _url("/organizations"), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Pipedrive create organization failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_deal(title, person_id=None, org_id=None, value=None, currency=None, stage_id=None):
+        body = {"title": title}
+        if person_id:
+            body["person_id"] = person_id
+        if org_id:
+            body["org_id"] = org_id
+        if value:
+            body["value"] = value
+        if currency:
+            body["currency"] = currency
+        if stage_id:
+            body["stage_id"] = stage_id
+        resp = http_request("POST", _url("/deals"), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Pipedrive create deal failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_deal(deal_id, data):
+        resp = http_request("PUT", _url("/deals/" + str(deal_id)), headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("Pipedrive update deal failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _add_note(content, deal_id=None, person_id=None, org_id=None):
+        body = {"content": content}
+        if deal_id:
+            body["deal_id"] = deal_id
+        if person_id:
+            body["person_id"] = person_id
+        if org_id:
+            body["org_id"] = org_id
+        resp = http_request("POST", _url("/notes"), headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Pipedrive add note failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "create_person": _create_person,
+        "get_person": _get_person,
+        "update_person": _update_person,
+        "create_organization": _create_organization,
+        "create_deal": _create_deal,
+        "update_deal": _update_deal,
+        "add_note": _add_note,
+    }
+
+
+def Zendesk(subdomain=None, email=None, api_token=None):
+    """
+    Create a Zendesk client.
+
+    Args:
+        subdomain: Zendesk subdomain (defaults to ZENDESK_SUBDOMAIN env var)
+        email: Zendesk email (defaults to ZENDESK_EMAIL env var)
+        api_token: Zendesk API token (defaults to ZENDESK_API_TOKEN env var)
+
+    Returns:
+        A Zendesk client struct with methods for support operations.
+    """
+    sub = subdomain if subdomain else env("ZENDESK_SUBDOMAIN")
+    em = email if email else env("ZENDESK_EMAIL")
+    token = api_token if api_token else env("ZENDESK_API_TOKEN")
+    if not sub:
+        fail("Zendesk subdomain not found. Set ZENDESK_SUBDOMAIN or provide subdomain parameter")
+    if not em:
+        fail("Zendesk email not found. Set ZENDESK_EMAIL or provide email parameter")
+    if not token:
+        fail("Zendesk API token not found. Set ZENDESK_API_TOKEN or provide api_token parameter")
+
+    base_url = "https://" + sub + ".zendesk.com/api/v2"
+
+    def _headers():
+        auth = base64_encode(em + "/token:" + token)
+        return {
+            "Authorization": "Basic " + auth,
+            "Content-Type": "application/json"
+        }
+
+    def _create_ticket(subject, description, requester_email=None, priority=None, tags=None):
+        ticket = {"subject": subject, "description": description}
+        if requester_email:
+            ticket["requester"] = {"email": requester_email}
+        if priority:
+            ticket["priority"] = priority
+        if tags:
+            ticket["tags"] = tags
+        body = {"ticket": ticket}
+        resp = http_request("POST", base_url + "/tickets.json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Zendesk create ticket failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_ticket(ticket_id):
+        resp = http_request("GET", base_url + "/tickets/" + str(ticket_id) + ".json", headers=_headers())
+        if resp.status >= 400:
+            fail("Zendesk get ticket failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_ticket(ticket_id, data):
+        body = {"ticket": data}
+        resp = http_request("PUT", base_url + "/tickets/" + str(ticket_id) + ".json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Zendesk update ticket failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _add_comment(ticket_id, body_text, public=True):
+        body = {"ticket": {"comment": {"body": body_text, "public": public}}}
+        resp = http_request("PUT", base_url + "/tickets/" + str(ticket_id) + ".json", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Zendesk add comment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _search_tickets(query):
+        resp = http_request("GET", base_url + "/search.json?query=" + url_encode(query), headers=_headers())
+        if resp.status >= 400:
+            fail("Zendesk search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "create_ticket": _create_ticket,
+        "get_ticket": _get_ticket,
+        "update_ticket": _update_ticket,
+        "add_comment": _add_comment,
+        "search_tickets": _search_tickets,
+    }

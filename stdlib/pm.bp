@@ -1,0 +1,482 @@
+def Linear(api_key=None):
+    """
+    Create a Linear client for project management.
+
+    Args:
+        api_key: Linear API key (defaults to LINEAR_API_KEY env var)
+
+    Returns:
+        A Linear client struct with methods for issue tracking.
+
+    Example:
+        linear = Linear()
+        issue = linear.create_issue("team-id", "Bug fix", "Description")
+    """
+    key = api_key if api_key else env("LINEAR_API_KEY")
+    if not key:
+        fail("Linear API key not found. Set LINEAR_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.linear.app/graphql"
+
+    def _headers():
+        return {
+            "Authorization": key,
+            "Content-Type": "application/json"
+        }
+
+    def _query(query, variables=None):
+        body = {"query": query}
+        if variables:
+            body["variables"] = variables
+        resp = http_request("POST", base_url, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Linear query failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_teams():
+        q = "query { teams { nodes { id name key } } }"
+        return _query(q)
+
+    def _list_issues(team_id=None, state=None, first=50):
+        filter_parts = []
+        if team_id:
+            filter_parts.append('team: {id: {eq: "' + team_id + '"}}')
+        if state:
+            filter_parts.append('state: {name: {eq: "' + state + '"}}')
+        filter_str = ", ".join(filter_parts)
+        q = "query { issues(first: " + str(first)
+        if filter_str:
+            q = q + ", filter: {" + filter_str + "}"
+        q = q + ") { nodes { id title description state { name } priority createdAt } } }"
+        return _query(q)
+
+    def _get_issue(issue_id):
+        q = 'query { issue(id: "' + issue_id + '") { id title description state { name } priority assignee { name } createdAt updatedAt } }'
+        return _query(q)
+
+    def _create_issue(team_id, title, description=None, priority=None, assignee_id=None, state_id=None):
+        input_parts = ['teamId: "' + team_id + '"', 'title: "' + title.replace('"', '\\"') + '"']
+        if description:
+            input_parts.append('description: "' + description.replace('"', '\\"').replace("\n", "\\n") + '"')
+        if priority:
+            input_parts.append('priority: ' + str(priority))
+        if assignee_id:
+            input_parts.append('assigneeId: "' + assignee_id + '"')
+        if state_id:
+            input_parts.append('stateId: "' + state_id + '"')
+        q = "mutation { issueCreate(input: {" + ", ".join(input_parts) + "}) { success issue { id title } } }"
+        return _query(q)
+
+    def _update_issue(issue_id, title=None, description=None, priority=None, state_id=None, assignee_id=None):
+        input_parts = []
+        if title:
+            input_parts.append('title: "' + title.replace('"', '\\"') + '"')
+        if description:
+            input_parts.append('description: "' + description.replace('"', '\\"').replace("\n", "\\n") + '"')
+        if priority:
+            input_parts.append('priority: ' + str(priority))
+        if state_id:
+            input_parts.append('stateId: "' + state_id + '"')
+        if assignee_id:
+            input_parts.append('assigneeId: "' + assignee_id + '"')
+        q = 'mutation { issueUpdate(id: "' + issue_id + '", input: {' + ", ".join(input_parts) + '}) { success issue { id title state { name } } } }'
+        return _query(q)
+
+    def _delete_issue(issue_id):
+        q = 'mutation { issueDelete(id: "' + issue_id + '") { success } }'
+        return _query(q)
+
+    def _add_comment(issue_id, body_text):
+        q = 'mutation { commentCreate(input: {issueId: "' + issue_id + '", body: "' + body_text.replace('"', '\\"').replace("\n", "\\n") + '"}) { success comment { id body } } }'
+        return _query(q)
+
+    def _list_projects(first=50):
+        q = "query { projects(first: " + str(first) + ") { nodes { id name description state } } }"
+        return _query(q)
+
+    def _list_workflow_states(team_id):
+        q = 'query { team(id: "' + team_id + '") { states { nodes { id name type } } } }'
+        return _query(q)
+
+    return {
+        "list_teams": _list_teams,
+        "list_issues": _list_issues,
+        "get_issue": _get_issue,
+        "create_issue": _create_issue,
+        "update_issue": _update_issue,
+        "delete_issue": _delete_issue,
+        "add_comment": _add_comment,
+        "list_projects": _list_projects,
+        "list_workflow_states": _list_workflow_states,
+    }
+
+
+def Jira(domain=None, email=None, api_token=None):
+    """
+    Create a Jira client for project management.
+
+    Args:
+        domain: Jira domain (e.g., "mycompany.atlassian.net", defaults to JIRA_DOMAIN env var)
+        email: Jira account email (defaults to JIRA_EMAIL env var)
+        api_token: Jira API token (defaults to JIRA_API_TOKEN env var)
+
+    Returns:
+        A Jira client struct with methods for issue tracking.
+    """
+    dom = domain if domain else env("JIRA_DOMAIN")
+    em = email if email else env("JIRA_EMAIL")
+    token = api_token if api_token else env("JIRA_API_TOKEN")
+    if not dom:
+        fail("Jira domain not found. Set JIRA_DOMAIN or provide domain parameter")
+    if not em:
+        fail("Jira email not found. Set JIRA_EMAIL or provide email parameter")
+    if not token:
+        fail("Jira API token not found. Set JIRA_API_TOKEN or provide api_token parameter")
+
+    base_url = "https://" + dom + "/rest/api/3"
+
+    def _headers():
+        auth = base64_encode(em + ":" + token)
+        return {
+            "Authorization": "Basic " + auth,
+            "Content-Type": "application/json"
+        }
+
+    def _list_projects():
+        resp = http_request("GET", base_url + "/project", headers=_headers())
+        if resp.status >= 400:
+            fail("Jira list projects failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_project(project_key):
+        resp = http_request("GET", base_url + "/project/" + project_key, headers=_headers())
+        if resp.status >= 400:
+            fail("Jira get project failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _search_issues(jql, max_results=50, start_at=0):
+        body = {
+            "jql": jql,
+            "maxResults": max_results,
+            "startAt": start_at
+        }
+        resp = http_request("POST", base_url + "/search", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Jira search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_issue(issue_key):
+        resp = http_request("GET", base_url + "/issue/" + issue_key, headers=_headers())
+        if resp.status >= 400:
+            fail("Jira get issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_issue(project_key, issue_type, summary, description=None, priority=None, assignee_id=None, labels=None):
+        fields = {
+            "project": {"key": project_key},
+            "issuetype": {"name": issue_type},
+            "summary": summary
+        }
+        if description:
+            fields["description"] = {
+                "type": "doc",
+                "version": 1,
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": description}]}]
+            }
+        if priority:
+            fields["priority"] = {"name": priority}
+        if assignee_id:
+            fields["assignee"] = {"accountId": assignee_id}
+        if labels:
+            fields["labels"] = labels
+        body = {"fields": fields}
+        resp = http_request("POST", base_url + "/issue", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Jira create issue failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_issue(issue_key, summary=None, description=None, priority=None, assignee_id=None, labels=None):
+        fields = {}
+        if summary:
+            fields["summary"] = summary
+        if description:
+            fields["description"] = {
+                "type": "doc",
+                "version": 1,
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": description}]}]
+            }
+        if priority:
+            fields["priority"] = {"name": priority}
+        if assignee_id:
+            fields["assignee"] = {"accountId": assignee_id}
+        if labels:
+            fields["labels"] = labels
+        body = {"fields": fields}
+        resp = http_request("PUT", base_url + "/issue/" + issue_key, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Jira update issue failed: " + resp.body)
+        return {"updated": True}
+
+    def _transition_issue(issue_key, transition_id):
+        body = {"transition": {"id": transition_id}}
+        resp = http_request("POST", base_url + "/issue/" + issue_key + "/transitions", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Jira transition issue failed: " + resp.body)
+        return {"transitioned": True}
+
+    def _get_transitions(issue_key):
+        resp = http_request("GET", base_url + "/issue/" + issue_key + "/transitions", headers=_headers())
+        if resp.status >= 400:
+            fail("Jira get transitions failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _add_comment(issue_key, body_text):
+        body = {
+            "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": body_text}]}]
+            }
+        }
+        resp = http_request("POST", base_url + "/issue/" + issue_key + "/comment", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Jira add comment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_projects": _list_projects,
+        "get_project": _get_project,
+        "search_issues": _search_issues,
+        "get_issue": _get_issue,
+        "create_issue": _create_issue,
+        "update_issue": _update_issue,
+        "transition_issue": _transition_issue,
+        "get_transitions": _get_transitions,
+        "add_comment": _add_comment,
+    }
+
+
+def Asana(access_token=None):
+    """
+    Create an Asana client for project management.
+
+    Args:
+        access_token: Asana access token (defaults to ASANA_ACCESS_TOKEN env var)
+
+    Returns:
+        An Asana client struct with methods for task management.
+    """
+    token = access_token if access_token else env("ASANA_ACCESS_TOKEN")
+    if not token:
+        fail("Asana access token not found. Set ASANA_ACCESS_TOKEN or provide access_token parameter")
+
+    base_url = "https://app.asana.com/api/1.0"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+        }
+
+    def _list_workspaces():
+        resp = http_request("GET", base_url + "/workspaces", headers=_headers())
+        if resp.status >= 400:
+            fail("Asana list workspaces failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_projects(workspace_id):
+        resp = http_request("GET", base_url + "/workspaces/" + workspace_id + "/projects", headers=_headers())
+        if resp.status >= 400:
+            fail("Asana list projects failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_project(project_id):
+        resp = http_request("GET", base_url + "/projects/" + project_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Asana get project failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_project(workspace_id, name, notes=None, team_id=None):
+        body = {"data": {"name": name, "workspace": workspace_id}}
+        if notes:
+            body["data"]["notes"] = notes
+        if team_id:
+            body["data"]["team"] = team_id
+        resp = http_request("POST", base_url + "/projects", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Asana create project failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_tasks(project_id):
+        resp = http_request("GET", base_url + "/projects/" + project_id + "/tasks", headers=_headers())
+        if resp.status >= 400:
+            fail("Asana list tasks failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_task(task_id):
+        resp = http_request("GET", base_url + "/tasks/" + task_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Asana get task failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_task(project_id, name, notes=None, due_on=None, assignee=None):
+        body = {"data": {"name": name, "projects": [project_id]}}
+        if notes:
+            body["data"]["notes"] = notes
+        if due_on:
+            body["data"]["due_on"] = due_on
+        if assignee:
+            body["data"]["assignee"] = assignee
+        resp = http_request("POST", base_url + "/tasks", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Asana create task failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_task(task_id, name=None, notes=None, due_on=None, completed=None, assignee=None):
+        data = {}
+        if name:
+            data["name"] = name
+        if notes:
+            data["notes"] = notes
+        if due_on:
+            data["due_on"] = due_on
+        if completed != None:
+            data["completed"] = completed
+        if assignee:
+            data["assignee"] = assignee
+        body = {"data": data}
+        resp = http_request("PUT", base_url + "/tasks/" + task_id, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Asana update task failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_task(task_id):
+        resp = http_request("DELETE", base_url + "/tasks/" + task_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Asana delete task failed: " + resp.body)
+        return {"deleted": True}
+
+    def _add_comment(task_id, text):
+        body = {"data": {"text": text}}
+        resp = http_request("POST", base_url + "/tasks/" + task_id + "/stories", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Asana add comment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_workspaces": _list_workspaces,
+        "list_projects": _list_projects,
+        "get_project": _get_project,
+        "create_project": _create_project,
+        "list_tasks": _list_tasks,
+        "get_task": _get_task,
+        "create_task": _create_task,
+        "update_task": _update_task,
+        "delete_task": _delete_task,
+        "add_comment": _add_comment,
+    }
+
+
+def Trello(api_key=None, token=None):
+    """
+    Create a Trello client for project management.
+
+    Args:
+        api_key: Trello API key (defaults to TRELLO_API_KEY env var)
+        token: Trello token (defaults to TRELLO_TOKEN env var)
+
+    Returns:
+        A Trello client struct with methods for board/card management.
+    """
+    key = api_key if api_key else env("TRELLO_API_KEY")
+    tok = token if token else env("TRELLO_TOKEN")
+    if not key:
+        fail("Trello API key not found. Set TRELLO_API_KEY or provide api_key parameter")
+    if not tok:
+        fail("Trello token not found. Set TRELLO_TOKEN or provide token parameter")
+
+    base_url = "https://api.trello.com/1"
+
+    def _auth_params():
+        return "key=" + key + "&token=" + tok
+
+    def _headers():
+        return {"Content-Type": "application/json"}
+
+    def _list_boards():
+        resp = http_request("GET", base_url + "/members/me/boards?" + _auth_params(), headers=_headers())
+        if resp.status >= 400:
+            fail("Trello list boards failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_board(board_id):
+        resp = http_request("GET", base_url + "/boards/" + board_id + "?" + _auth_params(), headers=_headers())
+        if resp.status >= 400:
+            fail("Trello get board failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_lists(board_id):
+        resp = http_request("GET", base_url + "/boards/" + board_id + "/lists?" + _auth_params(), headers=_headers())
+        if resp.status >= 400:
+            fail("Trello list lists failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_cards(list_id):
+        resp = http_request("GET", base_url + "/lists/" + list_id + "/cards?" + _auth_params(), headers=_headers())
+        if resp.status >= 400:
+            fail("Trello list cards failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_card(list_id, name, desc=None, due=None, labels=None):
+        params = _auth_params() + "&idList=" + list_id + "&name=" + url_encode(name)
+        if desc:
+            params = params + "&desc=" + url_encode(desc)
+        if due:
+            params = params + "&due=" + due
+        if labels:
+            params = params + "&idLabels=" + ",".join(labels)
+        resp = http_request("POST", base_url + "/cards?" + params, headers=_headers())
+        if resp.status >= 400:
+            fail("Trello create card failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_card(card_id, name=None, desc=None, due=None, closed=None, list_id=None):
+        params = _auth_params()
+        if name:
+            params = params + "&name=" + url_encode(name)
+        if desc:
+            params = params + "&desc=" + url_encode(desc)
+        if due:
+            params = params + "&due=" + due
+        if closed != None:
+            params = params + "&closed=" + ("true" if closed else "false")
+        if list_id:
+            params = params + "&idList=" + list_id
+        resp = http_request("PUT", base_url + "/cards/" + card_id + "?" + params, headers=_headers())
+        if resp.status >= 400:
+            fail("Trello update card failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_card(card_id):
+        resp = http_request("DELETE", base_url + "/cards/" + card_id + "?" + _auth_params(), headers=_headers())
+        if resp.status >= 400:
+            fail("Trello delete card failed: " + resp.body)
+        return {"deleted": True}
+
+    def _add_comment(card_id, text):
+        params = _auth_params() + "&text=" + url_encode(text)
+        resp = http_request("POST", base_url + "/cards/" + card_id + "/actions/comments?" + params, headers=_headers())
+        if resp.status >= 400:
+            fail("Trello add comment failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_boards": _list_boards,
+        "get_board": _get_board,
+        "list_lists": _list_lists,
+        "list_cards": _list_cards,
+        "create_card": _create_card,
+        "update_card": _update_card,
+        "delete_card": _delete_card,
+        "add_comment": _add_comment,
+    }

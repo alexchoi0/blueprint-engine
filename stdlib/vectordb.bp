@@ -1,0 +1,439 @@
+def Pinecone(api_key=None):
+    """
+    Create a Pinecone client for vector database operations.
+
+    Args:
+        api_key: Pinecone API key (defaults to PINECONE_API_KEY env var)
+
+    Returns:
+        A Pinecone client struct with methods for vector operations.
+
+    Example:
+        pc = Pinecone()
+        pc.upsert("my-index", [{"id": "vec1", "values": [0.1, 0.2, 0.3]}])
+        results = pc.query("my-index", [0.1, 0.2, 0.3], top_k=5)
+    """
+    key = api_key if api_key else env("PINECONE_API_KEY")
+    if not key:
+        fail("Pinecone API key not found. Set PINECONE_API_KEY or provide api_key parameter")
+
+    control_url = "https://api.pinecone.io"
+
+    def _headers():
+        return {
+            "Api-Key": key,
+            "Content-Type": "application/json"
+        }
+
+    def _list_indexes():
+        resp = http_request("GET", control_url + "/indexes", headers=_headers())
+        if resp.status >= 400:
+            fail("Pinecone list indexes failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_index(name, dimension, metric="cosine", cloud="aws", region="us-east-1"):
+        body = {
+            "name": name,
+            "dimension": dimension,
+            "metric": metric,
+            "spec": {
+                "serverless": {
+                    "cloud": cloud,
+                    "region": region
+                }
+            }
+        }
+        resp = http_request("POST", control_url + "/indexes", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Pinecone create index failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _describe_index(name):
+        resp = http_request("GET", control_url + "/indexes/" + name, headers=_headers())
+        if resp.status >= 400:
+            fail("Pinecone describe index failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_index(name):
+        resp = http_request("DELETE", control_url + "/indexes/" + name, headers=_headers())
+        if resp.status >= 400:
+            fail("Pinecone delete index failed: " + resp.body)
+        return {"deleted": True}
+
+    def _get_index_host(name):
+        index_info = _describe_index(name)
+        return index_info["host"]
+
+    def _upsert(index_name, vectors, namespace=None):
+        host = _get_index_host(index_name)
+        body = {"vectors": vectors}
+        if namespace:
+            body["namespace"] = namespace
+        resp = http_request("POST", "https://" + host + "/vectors/upsert", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Pinecone upsert failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _query(index_name, vector, top_k=10, namespace=None, include_values=False, include_metadata=True, filter=None):
+        host = _get_index_host(index_name)
+        body = {
+            "vector": vector,
+            "topK": top_k,
+            "includeValues": include_values,
+            "includeMetadata": include_metadata
+        }
+        if namespace:
+            body["namespace"] = namespace
+        if filter:
+            body["filter"] = filter
+        resp = http_request("POST", "https://" + host + "/query", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Pinecone query failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _fetch(index_name, ids, namespace=None):
+        host = _get_index_host(index_name)
+        url = "https://" + host + "/vectors/fetch?ids=" + "&ids=".join(ids)
+        if namespace:
+            url = url + "&namespace=" + namespace
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Pinecone fetch failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete(index_name, ids=None, delete_all=False, namespace=None, filter=None):
+        host = _get_index_host(index_name)
+        body = {}
+        if ids:
+            body["ids"] = ids
+        if delete_all:
+            body["deleteAll"] = True
+        if namespace:
+            body["namespace"] = namespace
+        if filter:
+            body["filter"] = filter
+        resp = http_request("POST", "https://" + host + "/vectors/delete", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Pinecone delete failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _describe_stats(index_name):
+        host = _get_index_host(index_name)
+        resp = http_request("POST", "https://" + host + "/describe_index_stats", headers=_headers(), body="{}")
+        if resp.status >= 400:
+            fail("Pinecone describe stats failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_indexes": _list_indexes,
+        "create_index": _create_index,
+        "describe_index": _describe_index,
+        "delete_index": _delete_index,
+        "upsert": _upsert,
+        "query": _query,
+        "fetch": _fetch,
+        "delete": _delete,
+        "describe_stats": _describe_stats,
+    }
+
+
+def Qdrant(url=None, api_key=None):
+    """
+    Create a Qdrant client for vector database operations.
+
+    Args:
+        url: Qdrant server URL (defaults to QDRANT_URL env var)
+        api_key: Qdrant API key (defaults to QDRANT_API_KEY env var)
+
+    Returns:
+        A Qdrant client struct with methods for vector operations.
+    """
+    base_url = url if url else env("QDRANT_URL")
+    key = api_key if api_key else env("QDRANT_API_KEY")
+    if not base_url:
+        base_url = "http://localhost:6333"
+
+    def _headers():
+        h = {"Content-Type": "application/json"}
+        if key:
+            h["api-key"] = key
+        return h
+
+    def _list_collections():
+        resp = http_request("GET", base_url + "/collections", headers=_headers())
+        if resp.status >= 400:
+            fail("Qdrant list collections failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_collection(name, size, distance="Cosine"):
+        body = {
+            "vectors": {
+                "size": size,
+                "distance": distance
+            }
+        }
+        resp = http_request("PUT", base_url + "/collections/" + name, headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Qdrant create collection failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_collection(name):
+        resp = http_request("DELETE", base_url + "/collections/" + name, headers=_headers())
+        if resp.status >= 400:
+            fail("Qdrant delete collection failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_collection(name):
+        resp = http_request("GET", base_url + "/collections/" + name, headers=_headers())
+        if resp.status >= 400:
+            fail("Qdrant get collection failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _upsert(collection, points):
+        body = {"points": points}
+        resp = http_request("PUT", base_url + "/collections/" + collection + "/points", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Qdrant upsert failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _search(collection, vector, limit=10, filter=None, with_payload=True, with_vectors=False):
+        body = {
+            "vector": vector,
+            "limit": limit,
+            "with_payload": with_payload,
+            "with_vectors": with_vectors
+        }
+        if filter:
+            body["filter"] = filter
+        resp = http_request("POST", base_url + "/collections/" + collection + "/points/search", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Qdrant search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_points(collection, ids, with_payload=True, with_vectors=False):
+        body = {
+            "ids": ids,
+            "with_payload": with_payload,
+            "with_vectors": with_vectors
+        }
+        resp = http_request("POST", base_url + "/collections/" + collection + "/points", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Qdrant get points failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_points(collection, ids=None, filter=None):
+        body = {}
+        if ids:
+            body["points"] = ids
+        if filter:
+            body["filter"] = filter
+        resp = http_request("POST", base_url + "/collections/" + collection + "/points/delete", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Qdrant delete points failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_collections": _list_collections,
+        "create_collection": _create_collection,
+        "delete_collection": _delete_collection,
+        "get_collection": _get_collection,
+        "upsert": _upsert,
+        "search": _search,
+        "get_points": _get_points,
+        "delete_points": _delete_points,
+    }
+
+
+def Weaviate(url=None, api_key=None):
+    """
+    Create a Weaviate client for vector database operations.
+
+    Args:
+        url: Weaviate server URL (defaults to WEAVIATE_URL env var)
+        api_key: Weaviate API key (defaults to WEAVIATE_API_KEY env var)
+
+    Returns:
+        A Weaviate client struct with methods for vector operations.
+    """
+    base_url = url if url else env("WEAVIATE_URL")
+    key = api_key if api_key else env("WEAVIATE_API_KEY")
+    if not base_url:
+        base_url = "http://localhost:8080"
+
+    def _headers():
+        h = {"Content-Type": "application/json"}
+        if key:
+            h["Authorization"] = "Bearer " + key
+        return h
+
+    def _get_schema():
+        resp = http_request("GET", base_url + "/v1/schema", headers=_headers())
+        if resp.status >= 400:
+            fail("Weaviate get schema failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_class(name, properties, vectorizer="none"):
+        body = {
+            "class": name,
+            "vectorizer": vectorizer,
+            "properties": properties
+        }
+        resp = http_request("POST", base_url + "/v1/schema", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Weaviate create class failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_class(name):
+        resp = http_request("DELETE", base_url + "/v1/schema/" + name, headers=_headers())
+        if resp.status >= 400:
+            fail("Weaviate delete class failed: " + resp.body)
+        return {"deleted": True}
+
+    def _create_object(class_name, properties, vector=None, id=None):
+        body = {
+            "class": class_name,
+            "properties": properties
+        }
+        if vector:
+            body["vector"] = vector
+        if id:
+            body["id"] = id
+        resp = http_request("POST", base_url + "/v1/objects", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Weaviate create object failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_object(class_name, id):
+        resp = http_request("GET", base_url + "/v1/objects/" + class_name + "/" + id, headers=_headers())
+        if resp.status >= 400:
+            fail("Weaviate get object failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_object(class_name, id):
+        resp = http_request("DELETE", base_url + "/v1/objects/" + class_name + "/" + id, headers=_headers())
+        if resp.status >= 400:
+            fail("Weaviate delete object failed: " + resp.body)
+        return {"deleted": True}
+
+    def _query(class_name, vector, limit=10, properties=None):
+        props = properties if properties else ["*"]
+        graphql = {
+            "query": """
+            {
+                Get {
+                    """ + class_name + """(nearVector: {vector: """ + json_encode(vector) + """}, limit: """ + str(limit) + """) {
+                        """ + " ".join(props) + """
+                        _additional { id distance }
+                    }
+                }
+            }
+            """
+        }
+        resp = http_request("POST", base_url + "/v1/graphql", headers=_headers(), body=json_encode(graphql))
+        if resp.status >= 400:
+            fail("Weaviate query failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "get_schema": _get_schema,
+        "create_class": _create_class,
+        "delete_class": _delete_class,
+        "create_object": _create_object,
+        "get_object": _get_object,
+        "delete_object": _delete_object,
+        "query": _query,
+    }
+
+
+def Chroma(url=None):
+    """
+    Create a Chroma client for vector database operations.
+
+    Args:
+        url: Chroma server URL (defaults to CHROMA_URL or http://localhost:8000)
+
+    Returns:
+        A Chroma client struct with methods for vector operations.
+    """
+    base_url = url if url else env("CHROMA_URL")
+    if not base_url:
+        base_url = "http://localhost:8000"
+
+    def _headers():
+        return {"Content-Type": "application/json"}
+
+    def _list_collections():
+        resp = http_request("GET", base_url + "/api/v1/collections", headers=_headers())
+        if resp.status >= 400:
+            fail("Chroma list collections failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_collection(name, metadata=None):
+        body = {"name": name}
+        if metadata:
+            body["metadata"] = metadata
+        resp = http_request("POST", base_url + "/api/v1/collections", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Chroma create collection failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_collection(name):
+        resp = http_request("GET", base_url + "/api/v1/collections/" + name, headers=_headers())
+        if resp.status >= 400:
+            fail("Chroma get collection failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete_collection(name):
+        resp = http_request("DELETE", base_url + "/api/v1/collections/" + name, headers=_headers())
+        if resp.status >= 400:
+            fail("Chroma delete collection failed: " + resp.body)
+        return {"deleted": True}
+
+    def _add(collection_id, ids, embeddings, documents=None, metadatas=None):
+        body = {
+            "ids": ids,
+            "embeddings": embeddings
+        }
+        if documents:
+            body["documents"] = documents
+        if metadatas:
+            body["metadatas"] = metadatas
+        resp = http_request("POST", base_url + "/api/v1/collections/" + collection_id + "/add", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Chroma add failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _query(collection_id, query_embeddings, n_results=10, where=None, include=None):
+        body = {
+            "query_embeddings": query_embeddings,
+            "n_results": n_results
+        }
+        if where:
+            body["where"] = where
+        if include:
+            body["include"] = include
+        resp = http_request("POST", base_url + "/api/v1/collections/" + collection_id + "/query", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Chroma query failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _delete(collection_id, ids=None, where=None):
+        body = {}
+        if ids:
+            body["ids"] = ids
+        if where:
+            body["where"] = where
+        resp = http_request("POST", base_url + "/api/v1/collections/" + collection_id + "/delete", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Chroma delete failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_collections": _list_collections,
+        "create_collection": _create_collection,
+        "get_collection": _get_collection,
+        "delete_collection": _delete_collection,
+        "add": _add,
+        "query": _query,
+        "delete": _delete,
+    }

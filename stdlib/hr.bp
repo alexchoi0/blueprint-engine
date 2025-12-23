@@ -1,0 +1,308 @@
+def BambooHR(subdomain=None, api_key=None):
+    """
+    Create a BambooHR client for HR operations.
+
+    Args:
+        subdomain: BambooHR subdomain (defaults to BAMBOOHR_SUBDOMAIN env var)
+        api_key: BambooHR API key (defaults to BAMBOOHR_API_KEY env var)
+
+    Returns:
+        A BambooHR client struct with methods for HR operations.
+    """
+    sub = subdomain if subdomain else env("BAMBOOHR_SUBDOMAIN")
+    key = api_key if api_key else env("BAMBOOHR_API_KEY")
+    if not sub:
+        fail("BambooHR subdomain not found. Set BAMBOOHR_SUBDOMAIN or provide subdomain parameter")
+    if not key:
+        fail("BambooHR API key not found. Set BAMBOOHR_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.bamboohr.com/api/gateway.php/" + sub + "/v1"
+
+    def _headers():
+        auth = base64_encode(key + ":x")
+        return {
+            "Authorization": "Basic " + auth,
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
+    def _list_employees(fields=None):
+        f = fields if fields else ["firstName", "lastName", "workEmail", "jobTitle", "department"]
+        fields_param = ",".join(f)
+        resp = http_request("GET", base_url + "/employees/directory", headers=_headers())
+        if resp.status >= 400:
+            fail("BambooHR list employees failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_employee(employee_id, fields=None):
+        f = fields if fields else ["firstName", "lastName", "workEmail", "jobTitle", "department", "hireDate", "status"]
+        fields_param = ",".join(f)
+        resp = http_request("GET", base_url + "/employees/" + str(employee_id) + "/?fields=" + fields_param, headers=_headers())
+        if resp.status >= 400:
+            fail("BambooHR get employee failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_employee(first_name, last_name, data=None):
+        body = {"firstName": first_name, "lastName": last_name}
+        if data:
+            for k in data:
+                body[k] = data[k]
+        resp = http_request("POST", base_url + "/employees/", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("BambooHR create employee failed: " + resp.body)
+        location = resp.headers.get("Location", "")
+        employee_id = location.split("/")[-1] if location else None
+        return {"id": employee_id}
+
+    def _update_employee(employee_id, data):
+        resp = http_request("POST", base_url + "/employees/" + str(employee_id), headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("BambooHR update employee failed: " + resp.body)
+        return {"updated": True}
+
+    def _get_time_off_requests(start_date, end_date, status=None, employee_id=None):
+        url = base_url + "/time_off/requests/?start=" + start_date + "&end=" + end_date
+        if status:
+            url = url + "&status=" + status
+        if employee_id:
+            url = url + "&employeeId=" + str(employee_id)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("BambooHR get time off requests failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _request_time_off(employee_id, time_off_type_id, start_date, end_date, amount, notes=None):
+        body = {
+            "timeOffTypeId": time_off_type_id,
+            "start": start_date,
+            "end": end_date,
+            "amount": amount
+        }
+        if notes:
+            body["notes"] = notes
+        resp = http_request("PUT", base_url + "/employees/" + str(employee_id) + "/time_off/request/", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("BambooHR request time off failed: " + resp.body)
+        return {"requested": True}
+
+    def _get_time_off_types():
+        resp = http_request("GET", base_url + "/meta/time_off/types/", headers=_headers())
+        if resp.status >= 400:
+            fail("BambooHR get time off types failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_employee_files(employee_id):
+        resp = http_request("GET", base_url + "/employees/" + str(employee_id) + "/files/view/", headers=_headers())
+        if resp.status >= 400:
+            fail("BambooHR get employee files failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_departments():
+        resp = http_request("GET", base_url + "/meta/lists/", headers=_headers())
+        if resp.status >= 400:
+            fail("BambooHR list departments failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_employees": _list_employees,
+        "get_employee": _get_employee,
+        "create_employee": _create_employee,
+        "update_employee": _update_employee,
+        "get_time_off_requests": _get_time_off_requests,
+        "request_time_off": _request_time_off,
+        "get_time_off_types": _get_time_off_types,
+        "get_employee_files": _get_employee_files,
+        "list_departments": _list_departments,
+    }
+
+
+def Gusto(access_token=None):
+    """
+    Create a Gusto client for HR and payroll operations.
+
+    Args:
+        access_token: Gusto access token (defaults to GUSTO_ACCESS_TOKEN env var)
+
+    Returns:
+        A Gusto client struct with methods for HR operations.
+    """
+    token = access_token if access_token else env("GUSTO_ACCESS_TOKEN")
+    if not token:
+        fail("Gusto access token not found. Set GUSTO_ACCESS_TOKEN or provide access_token parameter")
+
+    base_url = "https://api.gusto.com/v1"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + token,
+            "Content-Type": "application/json"
+        }
+
+    def _list_companies():
+        resp = http_request("GET", base_url + "/me", headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto get current user failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_company(company_id):
+        resp = http_request("GET", base_url + "/companies/" + company_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto get company failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_employees(company_id):
+        resp = http_request("GET", base_url + "/companies/" + company_id + "/employees", headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto list employees failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_employee(employee_id):
+        resp = http_request("GET", base_url + "/employees/" + employee_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto get employee failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _create_employee(company_id, first_name, last_name, email=None, date_of_birth=None):
+        body = {"first_name": first_name, "last_name": last_name}
+        if email:
+            body["email"] = email
+        if date_of_birth:
+            body["date_of_birth"] = date_of_birth
+        resp = http_request("POST", base_url + "/companies/" + company_id + "/employees", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Gusto create employee failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _update_employee(employee_id, data):
+        resp = http_request("PUT", base_url + "/employees/" + employee_id, headers=_headers(), body=json_encode(data))
+        if resp.status >= 400:
+            fail("Gusto update employee failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_payrolls(company_id, processed=None, start_date=None, end_date=None):
+        url = base_url + "/companies/" + company_id + "/payrolls"
+        params = []
+        if processed != None:
+            params.append("processed=" + ("true" if processed else "false"))
+        if start_date:
+            params.append("start_date=" + start_date)
+        if end_date:
+            params.append("end_date=" + end_date)
+        if params:
+            url = url + "?" + "&".join(params)
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto list payrolls failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_payroll(company_id, payroll_id):
+        resp = http_request("GET", base_url + "/companies/" + company_id + "/payrolls/" + payroll_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto get payroll failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_time_off_policies(company_id):
+        resp = http_request("GET", base_url + "/companies/" + company_id + "/time_off_policies", headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto list time off policies failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_employee_time_off(employee_id):
+        resp = http_request("GET", base_url + "/employees/" + employee_id + "/time_off_activities", headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto get employee time off failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_locations(company_id):
+        resp = http_request("GET", base_url + "/companies/" + company_id + "/locations", headers=_headers())
+        if resp.status >= 400:
+            fail("Gusto list locations failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_companies": _list_companies,
+        "get_company": _get_company,
+        "list_employees": _list_employees,
+        "get_employee": _get_employee,
+        "create_employee": _create_employee,
+        "update_employee": _update_employee,
+        "list_payrolls": _list_payrolls,
+        "get_payroll": _get_payroll,
+        "list_time_off_policies": _list_time_off_policies,
+        "get_employee_time_off": _get_employee_time_off,
+        "list_locations": _list_locations,
+    }
+
+
+def Deel(api_key=None):
+    """
+    Create a Deel client for global HR operations.
+
+    Args:
+        api_key: Deel API key (defaults to DEEL_API_KEY env var)
+
+    Returns:
+        A Deel client struct with methods for HR operations.
+    """
+    key = api_key if api_key else env("DEEL_API_KEY")
+    if not key:
+        fail("Deel API key not found. Set DEEL_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.deel.com/rest/v2"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json"
+        }
+
+    def _list_contracts(status=None, limit=50):
+        url = base_url + "/contracts?limit=" + str(limit)
+        if status:
+            url = url + "&status=" + status
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Deel list contracts failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_contract(contract_id):
+        resp = http_request("GET", base_url + "/contracts/" + contract_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Deel get contract failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_people(limit=50):
+        resp = http_request("GET", base_url + "/people?limit=" + str(limit), headers=_headers())
+        if resp.status >= 400:
+            fail("Deel list people failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_person(person_id):
+        resp = http_request("GET", base_url + "/people/" + person_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Deel get person failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_invoices(status=None, limit=50):
+        url = base_url + "/invoices?limit=" + str(limit)
+        if status:
+            url = url + "&status=" + status
+        resp = http_request("GET", url, headers=_headers())
+        if resp.status >= 400:
+            fail("Deel list invoices failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _list_payments(limit=50):
+        resp = http_request("GET", base_url + "/payments?limit=" + str(limit), headers=_headers())
+        if resp.status >= 400:
+            fail("Deel list payments failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "list_contracts": _list_contracts,
+        "get_contract": _get_contract,
+        "list_people": _list_people,
+        "get_person": _get_person,
+        "list_invoices": _list_invoices,
+        "list_payments": _list_payments,
+    }

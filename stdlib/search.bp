@@ -1,0 +1,337 @@
+def Tavily(api_key=None):
+    """
+    Create a Tavily client for web search.
+
+    Args:
+        api_key: Tavily API key (defaults to TAVILY_API_KEY env var)
+
+    Returns:
+        A Tavily client struct with methods for web search.
+
+    Example:
+        tavily = Tavily()
+        results = tavily.search("latest AI news")
+    """
+    key = api_key if api_key else env("TAVILY_API_KEY")
+    if not key:
+        fail("Tavily API key not found. Set TAVILY_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.tavily.com"
+
+    def _search(query, search_depth="basic", include_domains=None, exclude_domains=None, max_results=10, include_answer=True, include_raw_content=False):
+        body = {
+            "api_key": key,
+            "query": query,
+            "search_depth": search_depth,
+            "max_results": max_results,
+            "include_answer": include_answer,
+            "include_raw_content": include_raw_content
+        }
+        if include_domains:
+            body["include_domains"] = include_domains
+        if exclude_domains:
+            body["exclude_domains"] = exclude_domains
+        resp = http_request("POST", base_url + "/search", headers={"Content-Type": "application/json"}, body=json_encode(body))
+        if resp.status >= 400:
+            fail("Tavily search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _extract(urls):
+        body = {
+            "api_key": key,
+            "urls": urls if type(urls) == "list" else [urls]
+        }
+        resp = http_request("POST", base_url + "/extract", headers={"Content-Type": "application/json"}, body=json_encode(body))
+        if resp.status >= 400:
+            fail("Tavily extract failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "search": _search,
+        "extract": _extract,
+    }
+
+
+def Serper(api_key=None):
+    """
+    Create a Serper client for Google search.
+
+    Args:
+        api_key: Serper API key (defaults to SERPER_API_KEY env var)
+
+    Returns:
+        A Serper client struct with methods for Google search.
+    """
+    key = api_key if api_key else env("SERPER_API_KEY")
+    if not key:
+        fail("Serper API key not found. Set SERPER_API_KEY or provide api_key parameter")
+
+    base_url = "https://google.serper.dev"
+
+    def _headers():
+        return {
+            "X-API-KEY": key,
+            "Content-Type": "application/json"
+        }
+
+    def _search(query, num=10, page=1, gl=None, hl=None):
+        body = {"q": query, "num": num, "page": page}
+        if gl:
+            body["gl"] = gl
+        if hl:
+            body["hl"] = hl
+        resp = http_request("POST", base_url + "/search", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Serper search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _images(query, num=10, page=1, gl=None):
+        body = {"q": query, "num": num, "page": page}
+        if gl:
+            body["gl"] = gl
+        resp = http_request("POST", base_url + "/images", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Serper images failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _news(query, num=10, page=1, gl=None):
+        body = {"q": query, "num": num, "page": page}
+        if gl:
+            body["gl"] = gl
+        resp = http_request("POST", base_url + "/news", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Serper news failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "search": _search,
+        "images": _images,
+        "news": _news,
+    }
+
+
+def Exa(api_key=None):
+    """
+    Create an Exa client for neural search.
+
+    Args:
+        api_key: Exa API key (defaults to EXA_API_KEY env var)
+
+    Returns:
+        An Exa client struct with methods for neural search.
+    """
+    key = api_key if api_key else env("EXA_API_KEY")
+    if not key:
+        fail("Exa API key not found. Set EXA_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.exa.ai"
+
+    def _headers():
+        return {
+            "x-api-key": key,
+            "Content-Type": "application/json"
+        }
+
+    def _search(query, num_results=10, use_autoprompt=True, type="neural", include_domains=None, exclude_domains=None, start_published_date=None, end_published_date=None):
+        body = {
+            "query": query,
+            "numResults": num_results,
+            "useAutoprompt": use_autoprompt,
+            "type": type
+        }
+        if include_domains:
+            body["includeDomains"] = include_domains
+        if exclude_domains:
+            body["excludeDomains"] = exclude_domains
+        if start_published_date:
+            body["startPublishedDate"] = start_published_date
+        if end_published_date:
+            body["endPublishedDate"] = end_published_date
+        resp = http_request("POST", base_url + "/search", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Exa search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _find_similar(url, num_results=10, include_domains=None, exclude_domains=None):
+        body = {
+            "url": url,
+            "numResults": num_results
+        }
+        if include_domains:
+            body["includeDomains"] = include_domains
+        if exclude_domains:
+            body["excludeDomains"] = exclude_domains
+        resp = http_request("POST", base_url + "/findSimilar", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Exa find similar failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_contents(ids, text=True, highlights=False):
+        body = {"ids": ids if type(ids) == "list" else [ids]}
+        if text:
+            body["text"] = True
+        if highlights:
+            body["highlights"] = True
+        resp = http_request("POST", base_url + "/contents", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Exa get contents failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "search": _search,
+        "find_similar": _find_similar,
+        "get_contents": _get_contents,
+    }
+
+
+def Perplexity(api_key=None):
+    """
+    Create a Perplexity client for AI-powered search.
+
+    Args:
+        api_key: Perplexity API key (defaults to PERPLEXITY_API_KEY env var)
+
+    Returns:
+        A Perplexity client struct with methods for AI search.
+    """
+    key = api_key if api_key else env("PERPLEXITY_API_KEY")
+    if not key:
+        fail("Perplexity API key not found. Set PERPLEXITY_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.perplexity.ai"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json"
+        }
+
+    def _search(query, model="llama-3.1-sonar-small-128k-online"):
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": query}]
+        }
+        resp = http_request("POST", base_url + "/chat/completions", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Perplexity search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "search": _search,
+    }
+
+
+def Jina(api_key=None):
+    """
+    Create a Jina client for web reading and search.
+
+    Args:
+        api_key: Jina API key (defaults to JINA_API_KEY env var)
+
+    Returns:
+        A Jina client struct with methods for web operations.
+    """
+    key = api_key if api_key else env("JINA_API_KEY")
+    if not key:
+        fail("Jina API key not found. Set JINA_API_KEY or provide api_key parameter")
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Accept": "application/json"
+        }
+
+    def _read(url, target_selector=None, wait_for_selector=None):
+        read_url = "https://r.jina.ai/" + url
+        h = _headers()
+        if target_selector:
+            h["X-Target-Selector"] = target_selector
+        if wait_for_selector:
+            h["X-Wait-For-Selector"] = wait_for_selector
+        resp = http_request("GET", read_url, headers=h)
+        if resp.status >= 400:
+            fail("Jina read failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _search(query, num_results=5):
+        search_url = "https://s.jina.ai/" + url_encode(query)
+        resp = http_request("GET", search_url, headers=_headers())
+        if resp.status >= 400:
+            fail("Jina search failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "read": _read,
+        "search": _search,
+    }
+
+
+def Firecrawl(api_key=None):
+    """
+    Create a Firecrawl client for web scraping and crawling.
+
+    Args:
+        api_key: Firecrawl API key (defaults to FIRECRAWL_API_KEY env var)
+
+    Returns:
+        A Firecrawl client struct with methods for scraping operations.
+    """
+    key = api_key if api_key else env("FIRECRAWL_API_KEY")
+    if not key:
+        fail("Firecrawl API key not found. Set FIRECRAWL_API_KEY or provide api_key parameter")
+
+    base_url = "https://api.firecrawl.dev/v1"
+
+    def _headers():
+        return {
+            "Authorization": "Bearer " + key,
+            "Content-Type": "application/json"
+        }
+
+    def _scrape(url, formats=None, only_main_content=True, include_tags=None, exclude_tags=None):
+        body = {"url": url, "onlyMainContent": only_main_content}
+        if formats:
+            body["formats"] = formats
+        if include_tags:
+            body["includeTags"] = include_tags
+        if exclude_tags:
+            body["excludeTags"] = exclude_tags
+        resp = http_request("POST", base_url + "/scrape", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Firecrawl scrape failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _crawl(url, limit=10, max_depth=2, include_paths=None, exclude_paths=None):
+        body = {
+            "url": url,
+            "limit": limit,
+            "maxDepth": max_depth
+        }
+        if include_paths:
+            body["includePaths"] = include_paths
+        if exclude_paths:
+            body["excludePaths"] = exclude_paths
+        resp = http_request("POST", base_url + "/crawl", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Firecrawl crawl failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _get_crawl_status(crawl_id):
+        resp = http_request("GET", base_url + "/crawl/" + crawl_id, headers=_headers())
+        if resp.status >= 400:
+            fail("Firecrawl get crawl status failed: " + resp.body)
+        return json_decode(resp.body)
+
+    def _map(url, limit=100):
+        body = {"url": url, "limit": limit}
+        resp = http_request("POST", base_url + "/map", headers=_headers(), body=json_encode(body))
+        if resp.status >= 400:
+            fail("Firecrawl map failed: " + resp.body)
+        return json_decode(resp.body)
+
+    return {
+        "scrape": _scrape,
+        "crawl": _crawl,
+        "get_crawl_status": _get_crawl_status,
+        "map": _map,
+    }
