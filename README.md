@@ -49,7 +49,7 @@ bp eval "1 + 2"
 # Interactive REPL
 bp repl
 
-# Run multiple scripts concurrently
+# Run multiple scripts with 4 threads
 bp run "scripts/*.bp" -j 4
 ```
 
