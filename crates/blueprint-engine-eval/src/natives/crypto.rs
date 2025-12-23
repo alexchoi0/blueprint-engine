@@ -19,6 +19,10 @@ pub fn register(evaluator: &mut Evaluator) {
     evaluator.register_native(NativeFunction::new("sha512", sha512_fn));
     evaluator.register_native(NativeFunction::new("hmac_sha256", hmac_sha256_fn));
     evaluator.register_native(NativeFunction::new("hmac_sha512", hmac_sha512_fn));
+    evaluator.register_native(NativeFunction::new(
+        "constant_time_compare",
+        constant_time_compare_fn,
+    ));
 }
 
 async fn md5_fn(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> {
@@ -147,4 +151,26 @@ async fn hmac_sha512_fn(args: Vec<Value>, kwargs: HashMap<String, Value>) -> Res
     let result = mac.finalize();
 
     Ok(Value::String(Arc::new(hex::encode(result.into_bytes()))))
+}
+
+async fn constant_time_compare_fn(
+    args: Vec<Value>,
+    _kwargs: HashMap<String, Value>,
+) -> Result<Value> {
+    if args.len() != 2 {
+        return Err(BlueprintError::ArgumentError {
+            message: format!(
+                "constant_time_compare() takes exactly 2 arguments ({} given)",
+                args.len()
+            ),
+        });
+    }
+
+    let a = args[0].as_string()?;
+    let b = args[1].as_string()?;
+
+    use subtle::ConstantTimeEq;
+    let result = a.as_bytes().ct_eq(b.as_bytes());
+
+    Ok(Value::Bool(result.into()))
 }

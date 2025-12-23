@@ -1,0 +1,328 @@
+def Redis(host="localhost", port=6379, password=None, db=0):
+    """
+    Create a Redis client.
+
+    Args:
+        host: Redis server host (default: localhost)
+        port: Redis server port (default: 6379)
+        password: Optional password for AUTH
+        db: Database number (default: 0)
+
+    Returns:
+        A Redis client struct with methods for Redis operations.
+
+    Example:
+        r = Redis("localhost", 6379)
+        r.set("name", "alice")
+        print(r.get("name"))  # "alice"
+    """
+
+    def _encode(args):
+        parts = ["*" + str(len(args))]
+        for arg in args:
+            s = str(arg)
+            parts.append("$" + str(len(s)))
+            parts.append(s)
+        return "\r\n".join(parts) + "\r\n"
+
+    def _parse(data):
+        if not data or len(data) == 0:
+            return None
+
+        c = data[0]
+        rest = data[1:]
+
+        if c == "+":
+            return rest.split("\r\n")[0]
+        elif c == "-":
+            fail("Redis error: " + rest.split("\r\n")[0])
+        elif c == ":":
+            return int(rest.split("\r\n")[0])
+        elif c == "$":
+            lines = rest.split("\r\n")
+            length = int(lines[0])
+            if length == -1:
+                return None
+            return lines[1] if len(lines) > 1 else None
+        elif c == "*":
+            lines = rest.split("\r\n")
+            count = int(lines[0])
+            if count == -1:
+                return None
+            result = []
+            i = 1
+            for _ in range(count):
+                if i >= len(lines):
+                    break
+                if lines[i].startswith("$"):
+                    length = int(lines[i][1:])
+                    if length == -1:
+                        result.append(None)
+                    else:
+                        i += 1
+                        if i < len(lines):
+                            result.append(lines[i])
+                elif lines[i].startswith(":"):
+                    result.append(int(lines[i][1:]))
+                elif lines[i].startswith("+"):
+                    result.append(lines[i][1:])
+                i += 1
+            return result
+
+        return data
+
+    def _cmd(args):
+        cmd = _encode(args)
+        result = tcp_connect(host, port, data=cmd, timeout=30.0)
+        return _parse(result.get("response", ""))
+
+    def _auth():
+        if password:
+            _cmd(["AUTH", password])
+        if db != 0:
+            _cmd(["SELECT", db])
+
+    def _run(args):
+        _auth()
+        return _cmd(args)
+
+    def _set(key, value, ex=None, px=None, nx=False, xx=False):
+        args = ["SET", key, value]
+        if ex:
+            args.append("EX")
+            args.append(ex)
+        if px:
+            args.append("PX")
+            args.append(px)
+        if nx:
+            args.append("NX")
+        if xx:
+            args.append("XX")
+        return _run(args)
+
+    def _scan(cursor, match=None, count=None):
+        args = ["SCAN", cursor]
+        if match:
+            args.append("MATCH")
+            args.append(match)
+        if count:
+            args.append("COUNT")
+            args.append(count)
+        return _run(args)
+
+    def _lpop(key, count=None):
+        args = ["LPOP", key]
+        if count:
+            args.append(count)
+        return _run(args)
+
+    def _rpop(key, count=None):
+        args = ["RPOP", key]
+        if count:
+            args.append(count)
+        return _run(args)
+
+    def _hset(key, field=None, value=None, mapping=None):
+        args = ["HSET", key]
+        if field:
+            args.append(field)
+            args.append(value)
+        if mapping:
+            for k, v in mapping.items():
+                args.append(k)
+                args.append(v)
+        return _run(args)
+
+    def _zadd(key, mapping, nx=False, xx=False, gt=False, lt=False):
+        args = ["ZADD", key]
+        if nx:
+            args.append("NX")
+        if xx:
+            args.append("XX")
+        if gt:
+            args.append("GT")
+        if lt:
+            args.append("LT")
+        for score, member in mapping.items():
+            args.append(score)
+            args.append(member)
+        return _run(args)
+
+    def _zrange(key, start, stop, withscores=False):
+        args = ["ZRANGE", key, start, stop]
+        if withscores:
+            args.append("WITHSCORES")
+        return _run(args)
+
+    def _zrevrange(key, start, stop, withscores=False):
+        args = ["ZREVRANGE", key, start, stop]
+        if withscores:
+            args.append("WITHSCORES")
+        return _run(args)
+
+    def _xadd(stream, fields, id="*", maxlen=None, approximate=True):
+        args = ["XADD", stream]
+        if maxlen:
+            args.append("MAXLEN")
+            if approximate:
+                args.append("~")
+            args.append(maxlen)
+        args.append(id)
+        for k, v in fields.items():
+            args.append(k)
+            args.append(v)
+        return _run(args)
+
+    def _xrange(stream, start="-", end="+", count=None):
+        args = ["XRANGE", stream, start, end]
+        if count:
+            args.append("COUNT")
+            args.append(count)
+        return _run(args)
+
+    def _xrevrange(stream, end="+", start="-", count=None):
+        args = ["XREVRANGE", stream, end, start]
+        if count:
+            args.append("COUNT")
+            args.append(count)
+        return _run(args)
+
+    def _xread(streams, count=None, block=None):
+        args = ["XREAD"]
+        if count:
+            args.append("COUNT")
+            args.append(count)
+        if block != None:
+            args.append("BLOCK")
+            args.append(block)
+        args.append("STREAMS")
+        for k in streams.keys():
+            args.append(k)
+        for v in streams.values():
+            args.append(v)
+        return _run(args)
+
+    def _xgroup_create(stream, group, id="$", mkstream=False):
+        args = ["XGROUP", "CREATE", stream, group, id]
+        if mkstream:
+            args.append("MKSTREAM")
+        return _run(args)
+
+    def _xreadgroup(group, consumer, streams, count=None, block=None, noack=False):
+        args = ["XREADGROUP", "GROUP", group, consumer]
+        if count:
+            args.append("COUNT")
+            args.append(count)
+        if block != None:
+            args.append("BLOCK")
+            args.append(block)
+        if noack:
+            args.append("NOACK")
+        args.append("STREAMS")
+        for k in streams.keys():
+            args.append(k)
+        for v in streams.values():
+            args.append(v)
+        return _run(args)
+
+    def _xtrim(stream, maxlen, approximate=True):
+        args = ["XTRIM", stream, "MAXLEN"]
+        if approximate:
+            args.append("~")
+        args.append(maxlen)
+        return _run(args)
+
+    def _info(section=None):
+        args = ["INFO"]
+        if section:
+            args.append(section)
+        return _run(args)
+
+    return {
+        "ping": lambda: _run(["PING"]),
+
+        "get": lambda key: _run(["GET", key]),
+        "set": _set,
+        "setnx": lambda key, value: _run(["SETNX", key, value]),
+        "setex": lambda key, seconds, value: _run(["SETEX", key, seconds, value]),
+        "mget": lambda *keys: _run(["MGET"] + list(keys)),
+        "mset": lambda mapping: _run(["MSET"] + [item for kv in mapping.items() for item in kv]),
+        "incr": lambda key: _run(["INCR", key]),
+        "incrby": lambda key, amount: _run(["INCRBY", key, amount]),
+        "decr": lambda key: _run(["DECR", key]),
+        "decrby": lambda key, amount: _run(["DECRBY", key, amount]),
+        "append": lambda key, value: _run(["APPEND", key, value]),
+        "strlen": lambda key: _run(["STRLEN", key]),
+
+        "del": lambda *keys: _run(["DEL"] + list(keys)),
+        "exists": lambda *keys: _run(["EXISTS"] + list(keys)),
+        "expire": lambda key, seconds: _run(["EXPIRE", key, seconds]),
+        "expireat": lambda key, timestamp: _run(["EXPIREAT", key, timestamp]),
+        "ttl": lambda key: _run(["TTL", key]),
+        "pttl": lambda key: _run(["PTTL", key]),
+        "persist": lambda key: _run(["PERSIST", key]),
+        "keys": lambda pattern: _run(["KEYS", pattern]),
+        "scan": _scan,
+        "type": lambda key: _run(["TYPE", key]),
+        "rename": lambda key, newkey: _run(["RENAME", key, newkey]),
+
+        "lpush": lambda key, *values: _run(["LPUSH", key] + list(values)),
+        "rpush": lambda key, *values: _run(["RPUSH", key] + list(values)),
+        "lpop": _lpop,
+        "rpop": _rpop,
+        "lrange": lambda key, start, stop: _run(["LRANGE", key, start, stop]),
+        "llen": lambda key: _run(["LLEN", key]),
+        "lindex": lambda key, index: _run(["LINDEX", key, index]),
+        "lset": lambda key, index, value: _run(["LSET", key, index, value]),
+        "lrem": lambda key, count, value: _run(["LREM", key, count, value]),
+
+        "sadd": lambda key, *members: _run(["SADD", key] + list(members)),
+        "srem": lambda key, *members: _run(["SREM", key] + list(members)),
+        "smembers": lambda key: _run(["SMEMBERS", key]),
+        "sismember": lambda key, member: _run(["SISMEMBER", key, member]),
+        "scard": lambda key: _run(["SCARD", key]),
+        "sinter": lambda *keys: _run(["SINTER"] + list(keys)),
+        "sunion": lambda *keys: _run(["SUNION"] + list(keys)),
+        "sdiff": lambda *keys: _run(["SDIFF"] + list(keys)),
+
+        "hget": lambda key, field: _run(["HGET", key, field]),
+        "hset": _hset,
+        "hmget": lambda key, *fields: _run(["HMGET", key] + list(fields)),
+        "hgetall": lambda key: _run(["HGETALL", key]),
+        "hdel": lambda key, *fields: _run(["HDEL", key] + list(fields)),
+        "hexists": lambda key, field: _run(["HEXISTS", key, field]),
+        "hlen": lambda key: _run(["HLEN", key]),
+        "hkeys": lambda key: _run(["HKEYS", key]),
+        "hvals": lambda key: _run(["HVALS", key]),
+        "hincrby": lambda key, field, amount: _run(["HINCRBY", key, field, amount]),
+
+        "zadd": _zadd,
+        "zrem": lambda key, *members: _run(["ZREM", key] + list(members)),
+        "zscore": lambda key, member: _run(["ZSCORE", key, member]),
+        "zrank": lambda key, member: _run(["ZRANK", key, member]),
+        "zrange": _zrange,
+        "zrevrange": _zrevrange,
+        "zcard": lambda key: _run(["ZCARD", key]),
+        "zcount": lambda key, min, max: _run(["ZCOUNT", key, min, max]),
+
+        "publish": lambda channel, message: _run(["PUBLISH", channel, message]),
+
+        "xadd": _xadd,
+        "xlen": lambda stream: _run(["XLEN", stream]),
+        "xrange": _xrange,
+        "xrevrange": _xrevrange,
+        "xread": _xread,
+        "xgroup_create": _xgroup_create,
+        "xgroup_destroy": lambda stream, group: _run(["XGROUP", "DESTROY", stream, group]),
+        "xreadgroup": _xreadgroup,
+        "xack": lambda stream, group, *ids: _run(["XACK", stream, group] + list(ids)),
+        "xpending": lambda stream, group: _run(["XPENDING", stream, group]),
+        "xtrim": _xtrim,
+        "xdel": lambda stream, *ids: _run(["XDEL", stream] + list(ids)),
+        "xinfo_stream": lambda stream: _run(["XINFO", "STREAM", stream]),
+        "xinfo_groups": lambda stream: _run(["XINFO", "GROUPS", stream]),
+
+        "dbsize": lambda: _run(["DBSIZE"]),
+        "flushdb": lambda: _run(["FLUSHDB"]),
+        "info": _info,
+    }

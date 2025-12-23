@@ -1,546 +1,326 @@
-GCS_API_BASE = "https://storage.googleapis.com/storage/v1"
-GCS_UPLOAD_BASE = "https://storage.googleapis.com/upload/storage/v1"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GCS_SCOPE = "https://www.googleapis.com/auth/devstorage.full_control"
-
-
-def gcp_auth(credentials=None, credentials_json=None, scope=None):
+def GCS(credentials=None, credentials_json=None):
     """
-    Get a GCP access token for API authentication.
+    Create a GCS client.
 
     Args:
         credentials: Path to service account JSON file
         credentials_json: Service account JSON string
-        scope: OAuth scope (defaults to GCS full control)
 
     Returns:
-        Dict with "access_token" and "expires_in"
+        A GCS client struct with methods for GCS operations.
+
+    Example:
+        gcs = GCS()
+        gcs.upload("my-bucket", "path/to/file.txt", "hello world")
+        data = gcs.download("my-bucket", "path/to/file.txt")
+        gcs.delete("my-bucket", "path/to/file.txt")
     """
-    if scope == None:
-        scope = GCS_SCOPE
+    GCS_API_BASE = "https://storage.googleapis.com/storage/v1"
+    GCS_UPLOAD_BASE = "https://storage.googleapis.com/upload/storage/v1"
+    GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+    GCS_SCOPE = "https://www.googleapis.com/auth/devstorage.full_control"
 
-    if credentials:
-        sa_json = read_file(credentials)
-        return _get_token_from_service_account(sa_json, scope)
+    _cached_token = {"token": None, "expires_at": 0}
 
-    if credentials_json:
-        return _get_token_from_service_account(credentials_json, scope)
-
-    return _get_token_from_adc(scope)
-
-
-def _get_token_from_service_account(sa_json, scope):
-    sa = json.decode(sa_json)
-    client_email = sa["client_email"]
-    private_key = sa["private_key"]
-    token_uri = sa["token_uri"] if "token_uri" in sa else GOOGLE_TOKEN_URL
-
-    now = int(time())
-    claims = {
-        "iss": client_email,
-        "scope": scope,
-        "aud": token_uri,
-        "iat": now,
-        "exp": now + 3600
-    }
-
-    jwt = jwt_sign(claims, private_key=private_key, algorithm="RS256")
-
-    resp = http_request(
-        "POST",
-        token_uri,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        body="grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + jwt
-    )
-
-    if resp.status != 200:
-        fail("Token exchange failed (HTTP " + str(resp.status) + "): " + resp.body)
-
-    data = json.decode(resp.body)
-    return {
-        "access_token": data["access_token"],
-        "expires_in": data["expires_in"] if "expires_in" in data else 3600
-    }
-
-
-def _get_token_from_adc(scope):
-    gac = env("GOOGLE_APPLICATION_CREDENTIALS")
-    if gac:
-        if exists(gac):
-            sa_json = read_file(gac)
-            return _get_token_from_service_account(sa_json, scope)
-
-    home = env("HOME")
-    if home:
-        adc_path = home + "/.config/gcloud/application_default_credentials.json"
-        if exists(adc_path):
-            adc_json = read_file(adc_path)
-            adc = json.decode(adc_json)
-            if "type" in adc and adc["type"] == "authorized_user":
-                return _refresh_user_credentials(adc)
-            return _get_token_from_service_account(adc_json, scope)
-
-    token = _get_token_from_metadata_server()
-    if token:
-        return token
-
-    fail("No GCP credentials found. Set GOOGLE_APPLICATION_CREDENTIALS, run 'gcloud auth application-default login', or provide credentials/credentials_json parameter")
-
-
-def _refresh_user_credentials(adc):
-    resp = http_request(
-        "POST",
-        GOOGLE_TOKEN_URL,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        body="client_id=" + adc["client_id"] + "&client_secret=" + adc["client_secret"] + "&refresh_token=" + adc["refresh_token"] + "&grant_type=refresh_token"
-    )
-
-    if resp.status != 200:
-        fail("Token refresh failed (HTTP " + str(resp.status) + "): " + resp.body)
-
-    data = json.decode(resp.body)
-    return {
-        "access_token": data["access_token"],
-        "expires_in": data["expires_in"] if "expires_in" in data else 3600
-    }
-
-
-def _get_token_from_metadata_server():
-    resp = http_request(
-        "GET",
-        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-        headers={"Metadata-Flavor": "Google"},
-        timeout=2000
-    )
-
-    if resp.status != 200:
-        return None
-
-    data = json.decode(resp.body)
-    return {
-        "access_token": data["access_token"],
-        "expires_in": data["expires_in"] if "expires_in" in data else 3600
-    }
-
-
-def _url_encode(s):
-    result = ""
-    for c in s:
-        if c.isalnum() or c == "-" or c == "_" or c == "." or c == "~":
-            result = result + c
-        else:
-            code = ord(c)
-            result = result + "%" + _hex_byte(code)
-    return result
-
-
-def _hex_byte(n):
-    hex_chars = "0123456789ABCDEF"
-    return hex_chars[n // 16] + hex_chars[n % 16]
-
-
-def gcs_upload(bucket, object, data, content_type=None, credentials=None, credentials_json=None):
-    """
-    Upload data to a GCS object.
-
-    Args:
-        bucket: Bucket name
-        object: Object name/path
-        data: String data to upload
-        content_type: MIME type (default: application/octet-stream)
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
-
-    Returns:
-        Dict with success status and metadata
-    """
-    if content_type == None:
-        content_type = "application/octet-stream"
-
-    auth = gcp_auth(credentials=credentials, credentials_json=credentials_json)
-    token = auth["access_token"]
-
-    url = GCS_UPLOAD_BASE + "/b/" + _url_encode(bucket) + "/o?uploadType=media&name=" + _url_encode(object)
-
-    resp = http_request(
-        "POST",
-        url,
-        headers={
-            "Authorization": "Bearer " + token,
-            "Content-Type": content_type
-        },
-        body=data
-    )
-
-    if resp.status < 200 or resp.status >= 300:
-        return {"success": False, "error": resp.body, "code": resp.status}
-
-    obj = json.decode(resp.body)
-    return {
-        "success": True,
-        "data": None,
-        "metadata": {
-            "bucket": obj["bucket"],
-            "object": obj["name"],
-            "size": int(obj["size"]) if "size" in obj else 0,
-            "content_type": obj["contentType"] if "contentType" in obj else ""
-        }
-    }
-
-
-def gcs_upload_file(bucket, object, file, content_type=None, credentials=None, credentials_json=None):
-    """
-    Upload a file to GCS.
-
-    Args:
-        bucket: Bucket name
-        object: Object name/path
-        file: Local file path
-        content_type: MIME type (auto-detected if not provided)
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
-
-    Returns:
-        Dict with success status and metadata
-    """
-    if content_type == None:
-        content_type = _guess_content_type(file)
-
-    data = read_file(file)
-    return gcs_upload(bucket, object, data, content_type=content_type, credentials=credentials, credentials_json=credentials_json)
-
-
-def gcs_download(bucket, object, credentials=None, credentials_json=None):
-    """
-    Download a GCS object as string.
-
-    Args:
-        bucket: Bucket name
-        object: Object name/path
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
-
-    Returns:
-        Dict with success status and data
-    """
-    auth = gcp_auth(credentials=credentials, credentials_json=credentials_json)
-    token = auth["access_token"]
-
-    url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o/" + _url_encode(object) + "?alt=media"
-
-    resp = http_request(
-        "GET",
-        url,
-        headers={"Authorization": "Bearer " + token}
-    )
-
-    if resp.status < 200 or resp.status >= 300:
-        return {"success": False, "error": resp.body, "code": resp.status}
-
-    return {
-        "success": True,
-        "data": resp.body,
-        "metadata": {
-            "bucket": bucket,
-            "object": object
-        }
-    }
-
-
-def gcs_download_file(bucket, object, file, credentials=None, credentials_json=None):
-    """
-    Download a GCS object to a local file.
-
-    Args:
-        bucket: Bucket name
-        object: Object name/path
-        file: Local file path to write
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
-
-    Returns:
-        Dict with success status and metadata
-    """
-    result = gcs_download(bucket, object, credentials=credentials, credentials_json=credentials_json)
-    if not result["success"]:
+    def _url_encode(s):
+        result = ""
+        for c in s:
+            if c.isalnum() or c == "-" or c == "_" or c == "." or c == "~":
+                result = result + c
+            else:
+                code = ord(c)
+                hex_chars = "0123456789ABCDEF"
+                result = result + "%" + hex_chars[code // 16] + hex_chars[code % 16]
         return result
 
-    write_file(file, result["data"])
-    return {
-        "success": True,
-        "data": None,
-        "metadata": {
-            "bucket": bucket,
-            "object": object,
-            "file": file,
-            "size": len(result["data"])
+    def _get_token_from_service_account(sa_json):
+        sa = json.decode(sa_json)
+        client_email = sa["client_email"]
+        private_key = sa["private_key"]
+        token_uri = sa["token_uri"] if "token_uri" in sa else GOOGLE_TOKEN_URL
+
+        now = int(time())
+        claims = {
+            "iss": client_email,
+            "scope": GCS_SCOPE,
+            "aud": token_uri,
+            "iat": now,
+            "exp": now + 3600
         }
-    }
 
+        jwt = jwt_sign(claims, private_key=private_key, algorithm="RS256")
 
-def gcs_list(bucket, prefix=None, delimiter=None, max_results=None, credentials=None, credentials_json=None):
-    """
-    List objects in a GCS bucket.
+        resp = http_request(
+            "POST",
+            token_uri,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            body="grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=" + jwt
+        )
 
-    Args:
-        bucket: Bucket name
-        prefix: Filter objects by prefix
-        delimiter: Group results by delimiter (e.g., "/" for directories)
-        max_results: Maximum number of results
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
+        if resp.status != 200:
+            fail("Token exchange failed (HTTP " + str(resp.status) + "): " + resp.body)
 
-    Returns:
-        Dict with success status and list of objects
-    """
-    auth = gcp_auth(credentials=credentials, credentials_json=credentials_json)
-    token = auth["access_token"]
+        data = json.decode(resp.body)
+        expires_in = data["expires_in"] if "expires_in" in data else 3600
+        return {"token": data["access_token"], "expires_at": now + expires_in - 60}
 
-    url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o"
-    params = []
-    if prefix:
-        params = params + ["prefix=" + _url_encode(prefix)]
-    if delimiter:
-        params = params + ["delimiter=" + _url_encode(delimiter)]
-    if max_results:
-        params = params + ["maxResults=" + str(max_results)]
-    if params:
-        url = url + "?" + "&".join(params)
+    def _refresh_user_credentials(adc):
+        resp = http_request(
+            "POST",
+            GOOGLE_TOKEN_URL,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            body="client_id=" + adc["client_id"] + "&client_secret=" + adc["client_secret"] + "&refresh_token=" + adc["refresh_token"] + "&grant_type=refresh_token"
+        )
 
-    resp = http_request(
-        "GET",
-        url,
-        headers={"Authorization": "Bearer " + token}
-    )
+        if resp.status != 200:
+            fail("Token refresh failed (HTTP " + str(resp.status) + "): " + resp.body)
 
-    if resp.status < 200 or resp.status >= 300:
-        return {"success": False, "error": resp.body, "code": resp.status}
+        now = int(time())
+        data = json.decode(resp.body)
+        expires_in = data["expires_in"] if "expires_in" in data else 3600
+        return {"token": data["access_token"], "expires_at": now + expires_in - 60}
 
-    data = json.decode(resp.body)
+    def _get_token_from_metadata_server():
+        resp = http_request(
+            "GET",
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+            headers={"Metadata-Flavor": "Google"},
+            timeout=2000
+        )
 
-    objects = []
-    if "items" in data:
-        for obj in data["items"]:
-            item = {"name": obj["name"]}
-            if "size" in obj:
-                item["size"] = int(obj["size"])
-            if "contentType" in obj:
-                item["content_type"] = obj["contentType"]
-            if "updated" in obj:
-                item["updated"] = obj["updated"]
-            objects = objects + [item]
+        if resp.status != 200:
+            return None
 
-    prefixes = data["prefixes"] if "prefixes" in data else []
+        now = int(time())
+        data = json.decode(resp.body)
+        expires_in = data["expires_in"] if "expires_in" in data else 3600
+        return {"token": data["access_token"], "expires_at": now + expires_in - 60}
 
-    metadata = {"bucket": bucket, "count": len(objects)}
-    if prefixes:
-        metadata["prefixes"] = prefixes
+    def _get_token():
+        now = int(time())
+        if _cached_token["token"] and _cached_token["expires_at"] > now:
+            return _cached_token["token"]
 
-    return {
-        "success": True,
-        "data": objects,
-        "metadata": metadata
-    }
+        result = None
 
+        if credentials:
+            sa_json = read_file(credentials)
+            result = _get_token_from_service_account(sa_json)
+        elif credentials_json:
+            result = _get_token_from_service_account(credentials_json)
+        else:
+            gac = env("GOOGLE_APPLICATION_CREDENTIALS")
+            if gac and exists(gac):
+                sa_json = read_file(gac)
+                result = _get_token_from_service_account(sa_json)
+            else:
+                home = env("HOME")
+                if home:
+                    adc_path = home + "/.config/gcloud/application_default_credentials.json"
+                    if exists(adc_path):
+                        adc_json = read_file(adc_path)
+                        adc = json.decode(adc_json)
+                        if "type" in adc and adc["type"] == "authorized_user":
+                            result = _refresh_user_credentials(adc)
+                        else:
+                            result = _get_token_from_service_account(adc_json)
 
-def gcs_delete(bucket, object, credentials=None, credentials_json=None):
-    """
-    Delete a GCS object.
+                if not result:
+                    result = _get_token_from_metadata_server()
 
-    Args:
-        bucket: Bucket name
-        object: Object name/path
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
+        if not result:
+            fail("No GCP credentials found. Set GOOGLE_APPLICATION_CREDENTIALS, run 'gcloud auth application-default login', or provide credentials parameter")
 
-    Returns:
-        Dict with success status
-    """
-    auth = gcp_auth(credentials=credentials, credentials_json=credentials_json)
-    token = auth["access_token"]
+        _cached_token["token"] = result["token"]
+        _cached_token["expires_at"] = result["expires_at"]
+        return result["token"]
 
-    url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o/" + _url_encode(object)
+    def _upload(bucket, name, data, content_type=None):
+        if content_type == None:
+            content_type = _guess_content_type(name)
 
-    resp = http_request(
-        "DELETE",
-        url,
-        headers={"Authorization": "Bearer " + token}
-    )
+        token = _get_token()
+        url = GCS_UPLOAD_BASE + "/b/" + _url_encode(bucket) + "/o?uploadType=media&name=" + _url_encode(name)
 
-    if resp.status < 200 or resp.status >= 300:
-        return {"success": False, "error": resp.body, "code": resp.status}
+        resp = http_request(
+            "POST",
+            url,
+            headers={
+                "Authorization": "Bearer " + token,
+                "Content-Type": content_type
+            },
+            body=data
+        )
 
-    return {
-        "success": True,
-        "data": None,
-        "metadata": {
-            "bucket": bucket,
-            "object": object
+        if resp.status < 200 or resp.status >= 300:
+            fail("GCS upload failed: " + resp.body)
+
+        obj = json.decode(resp.body)
+        return {
+            "bucket": obj["bucket"],
+            "name": obj["name"],
+            "size": int(obj["size"]) if "size" in obj else len(data)
         }
-    }
 
+    def _upload_file(bucket, name, file, content_type=None):
+        if content_type == None:
+            content_type = _guess_content_type(file)
+        data = read_file(file)
+        return _upload(bucket, name, data, content_type)
 
-def gcs_exists(bucket, object, credentials=None, credentials_json=None):
-    """
-    Check if a GCS object exists.
+    def _download(bucket, name):
+        token = _get_token()
+        url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o/" + _url_encode(name) + "?alt=media"
 
-    Args:
-        bucket: Bucket name
-        object: Object name/path
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
+        resp = http_request(
+            "GET",
+            url,
+            headers={"Authorization": "Bearer " + token}
+        )
 
-    Returns:
-        Dict with success status and exists boolean
-    """
-    auth = gcp_auth(credentials=credentials, credentials_json=credentials_json)
-    token = auth["access_token"]
+        if resp.status < 200 or resp.status >= 300:
+            fail("GCS download failed: " + resp.body)
 
-    url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o/" + _url_encode(object)
+        return resp.body
 
-    resp = http_request(
-        "GET",
-        url,
-        headers={"Authorization": "Bearer " + token}
-    )
+    def _download_file(bucket, name, file):
+        data = _download(bucket, name)
+        write_file(file, data)
+        return {"bucket": bucket, "name": name, "file": file, "size": len(data)}
+
+    def _delete(bucket, *names):
+        token = _get_token()
+        for name in names:
+            url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o/" + _url_encode(name)
+            resp = http_request(
+                "DELETE",
+                url,
+                headers={"Authorization": "Bearer " + token}
+            )
+            if resp.status < 200 or resp.status >= 300:
+                fail("GCS delete failed: " + resp.body)
+        return len(names)
+
+    def _exists(bucket, name):
+        token = _get_token()
+        url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o/" + _url_encode(name)
+
+        resp = http_request(
+            "GET",
+            url,
+            headers={"Authorization": "Bearer " + token}
+        )
+
+        return resp.status >= 200 and resp.status < 300
+
+    def _list(bucket, prefix=None, delimiter=None, max_results=None):
+        token = _get_token()
+        url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o"
+        params = []
+        if prefix:
+            params.append("prefix=" + _url_encode(prefix))
+        if delimiter:
+            params.append("delimiter=" + _url_encode(delimiter))
+        if max_results:
+            params.append("maxResults=" + str(max_results))
+        if params:
+            url = url + "?" + "&".join(params)
+
+        resp = http_request(
+            "GET",
+            url,
+            headers={"Authorization": "Bearer " + token}
+        )
+
+        if resp.status < 200 or resp.status >= 300:
+            fail("GCS list failed: " + resp.body)
+
+        data = json.decode(resp.body)
+
+        objects = []
+        if "items" in data:
+            for obj in data["items"]:
+                item = {"name": obj["name"]}
+                if "size" in obj:
+                    item["size"] = int(obj["size"])
+                if "contentType" in obj:
+                    item["content_type"] = obj["contentType"]
+                if "updated" in obj:
+                    item["updated"] = obj["updated"]
+                objects.append(item)
+
+        return objects
+
+    def _copy(src_bucket, src_name, dest_bucket, dest_name):
+        token = _get_token()
+        url = GCS_API_BASE + "/b/" + _url_encode(src_bucket) + "/o/" + _url_encode(src_name) + "/copyTo/b/" + _url_encode(dest_bucket) + "/o/" + _url_encode(dest_name)
+
+        resp = http_request(
+            "POST",
+            url,
+            headers={"Authorization": "Bearer " + token}
+        )
+
+        if resp.status < 200 or resp.status >= 300:
+            fail("GCS copy failed: " + resp.body)
+
+        obj = json.decode(resp.body)
+        return {"src_bucket": src_bucket, "src_name": src_name, "dest_bucket": obj["bucket"], "dest_name": obj["name"]}
+
+    def _metadata(bucket, name):
+        token = _get_token()
+        url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o/" + _url_encode(name)
+
+        resp = http_request(
+            "GET",
+            url,
+            headers={"Authorization": "Bearer " + token}
+        )
+
+        if resp.status < 200 or resp.status >= 300:
+            fail("GCS metadata failed: " + resp.body)
+
+        obj = json.decode(resp.body)
+        data = {"bucket": obj["bucket"], "name": obj["name"]}
+        if "size" in obj:
+            data["size"] = int(obj["size"])
+        if "contentType" in obj:
+            data["content_type"] = obj["contentType"]
+        if "updated" in obj:
+            data["updated"] = obj["updated"]
+        if "timeCreated" in obj:
+            data["created"] = obj["timeCreated"]
+        if "md5Hash" in obj:
+            data["md5"] = obj["md5Hash"]
+        if "generation" in obj:
+            data["generation"] = obj["generation"]
+        return data
+
+    def _guess_content_type(path):
+        ext = ""
+        if "." in path:
+            parts = path.split(".")
+            ext = parts[len(parts) - 1].lower()
+        content_types = {
+            "json": "application/json", "txt": "text/plain", "html": "text/html",
+            "css": "text/css", "js": "application/javascript", "xml": "application/xml",
+            "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+            "gif": "image/gif", "svg": "image/svg+xml", "pdf": "application/pdf",
+            "zip": "application/zip", "gz": "application/gzip", "csv": "text/csv",
+            "md": "text/markdown", "yaml": "application/yaml", "yml": "application/yaml"
+        }
+        if ext in content_types:
+            return content_types[ext]
+        return "application/octet-stream"
 
     return {
-        "success": True,
-        "data": resp.status >= 200 and resp.status < 300,
-        "metadata": {
-            "bucket": bucket,
-            "object": object
-        }
+        "upload": _upload,
+        "upload_file": _upload_file,
+        "download": _download,
+        "download_file": _download_file,
+        "delete": _delete,
+        "exists": _exists,
+        "list": _list,
+        "copy": _copy,
+        "metadata": _metadata,
     }
-
-
-def gcs_copy(src_bucket, src_object, dest_bucket, dest_object, credentials=None, credentials_json=None):
-    """
-    Copy a GCS object.
-
-    Args:
-        src_bucket: Source bucket name
-        src_object: Source object name/path
-        dest_bucket: Destination bucket name
-        dest_object: Destination object name/path
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
-
-    Returns:
-        Dict with success status and metadata
-    """
-    auth = gcp_auth(credentials=credentials, credentials_json=credentials_json)
-    token = auth["access_token"]
-
-    url = GCS_API_BASE + "/b/" + _url_encode(src_bucket) + "/o/" + _url_encode(src_object) + "/copyTo/b/" + _url_encode(dest_bucket) + "/o/" + _url_encode(dest_object)
-
-    resp = http_request(
-        "POST",
-        url,
-        headers={"Authorization": "Bearer " + token}
-    )
-
-    if resp.status < 200 or resp.status >= 300:
-        return {"success": False, "error": resp.body, "code": resp.status}
-
-    obj = json.decode(resp.body)
-    return {
-        "success": True,
-        "data": None,
-        "metadata": {
-            "src_bucket": src_bucket,
-            "src_object": src_object,
-            "dest_bucket": obj["bucket"],
-            "dest_object": obj["name"]
-        }
-    }
-
-
-def gcs_get_metadata(bucket, object, credentials=None, credentials_json=None):
-    """
-    Get metadata for a GCS object.
-
-    Args:
-        bucket: Bucket name
-        object: Object name/path
-        credentials: Path to service account JSON file
-        credentials_json: Service account JSON string
-
-    Returns:
-        Dict with success status and object metadata
-    """
-    auth = gcp_auth(credentials=credentials, credentials_json=credentials_json)
-    token = auth["access_token"]
-
-    url = GCS_API_BASE + "/b/" + _url_encode(bucket) + "/o/" + _url_encode(object)
-
-    resp = http_request(
-        "GET",
-        url,
-        headers={"Authorization": "Bearer " + token}
-    )
-
-    if resp.status < 200 or resp.status >= 300:
-        return {"success": False, "error": resp.body, "code": resp.status}
-
-    obj = json.decode(resp.body)
-    data = {
-        "bucket": obj["bucket"],
-        "name": obj["name"]
-    }
-    if "size" in obj:
-        data["size"] = int(obj["size"])
-    if "contentType" in obj:
-        data["content_type"] = obj["contentType"]
-    if "updated" in obj:
-        data["updated"] = obj["updated"]
-    if "timeCreated" in obj:
-        data["created"] = obj["timeCreated"]
-    if "md5Hash" in obj:
-        data["md5"] = obj["md5Hash"]
-    if "generation" in obj:
-        data["generation"] = obj["generation"]
-
-    return {
-        "success": True,
-        "data": data,
-        "metadata": {
-            "bucket": bucket,
-            "object": object
-        }
-    }
-
-
-def _guess_content_type(path):
-    ext = ""
-    if "." in path:
-        parts = path.split(".")
-        ext = parts[len(parts) - 1].lower()
-
-    content_types = {
-        "json": "application/json",
-        "txt": "text/plain",
-        "html": "text/html",
-        "htm": "text/html",
-        "css": "text/css",
-        "js": "application/javascript",
-        "xml": "application/xml",
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "png": "image/png",
-        "gif": "image/gif",
-        "svg": "image/svg+xml",
-        "pdf": "application/pdf",
-        "zip": "application/zip",
-        "gz": "application/gzip",
-        "gzip": "application/gzip",
-        "tar": "application/x-tar",
-        "csv": "text/csv",
-        "md": "text/markdown",
-        "yaml": "application/yaml",
-        "yml": "application/yaml"
-    }
-
-    if ext in content_types:
-        return content_types[ext]
-    return "application/octet-stream"
