@@ -81,51 +81,51 @@ automatically yields to Tokio at I/O boundaries, enabling thousands of concurren
 
 ```
 blueprint/
-├── Cargo.toml                 # Workspace
-├── ARCHITECTURE.md            # This file
+├── Cargo.toml                   # Workspace
+├── ARCHITECTURE.md              # This file
 │
 ├── crates/
-│   ├── blueprint_core/        # Shared types, errors
+│   ├── blueprint-engine-core/   # Shared types, errors
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── error.rs       # BlueprintError
-│   │       └── value.rs       # Runtime values
+│   │       ├── error.rs         # BlueprintError
+│   │       └── value.rs         # Runtime values
 │   │
-│   ├── blueprint_parser/      # Starlark parsing
+│   ├── blueprint-engine-parser/ # Starlark parsing
 │   │   └── src/
-│   │       └── lib.rs         # Parse to AST (wraps starlark-rust)
+│   │       └── lib.rs           # Parse to AST (wraps starlark-rust)
 │   │
-│   ├── blueprint_eval/        # Async evaluator (THE CORE)
+│   ├── blueprint-engine-eval/   # Async evaluator (THE CORE)
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── eval.rs        # Main async eval loop
-│   │       ├── scope.rs       # Variable scopes
+│   │       ├── eval.rs          # Main async eval loop
+│   │       ├── scope.rs         # Variable scopes
 │   │       └── natives/
 │   │           ├── mod.rs
-│   │           ├── file.rs    # read_file, write_file, glob, exists
-│   │           ├── http.rs    # http_request, download
-│   │           ├── process.rs # run, shell, env
-│   │           ├── parallel.rs# parallel() function
-│   │           ├── console.rs # print, input
-│   │           ├── time.rs    # sleep, now
-│   │           ├── json.rs    # json_encode, json_decode
-│   │           ├── crypto.rs  # sha256, hmac_sha256
-│   │           ├── jwt.rs     # jwt_encode, jwt_decode
-│   │           ├── approval.rs# ask_for_approval
-│   │           ├── redact.rs  # redact_pii, redact_secrets
-│   │           ├── task.rs    # task() with timeout
-│   │           └── triggers.rs# http_server, cron, interval
+│   │           ├── file.rs      # read_file, write_file, glob, exists
+│   │           ├── http.rs      # http_request, download
+│   │           ├── process.rs   # run, shell, env
+│   │           ├── parallel.rs  # parallel() function
+│   │           ├── console.rs   # print, input
+│   │           ├── time.rs      # sleep, now
+│   │           ├── json.rs      # json_encode, json_decode
+│   │           ├── crypto.rs    # sha256, hmac_sha256
+│   │           ├── jwt.rs       # jwt_encode, jwt_decode
+│   │           ├── approval.rs  # ask_for_approval
+│   │           ├── redact.rs    # redact_pii, redact_secrets
+│   │           ├── task.rs      # task() with timeout
+│   │           └── triggers.rs  # http_server, cron, interval
 │   │
-│   └── blueprint_cli/         # CLI interface
+│   └── blueprint_cli/           # CLI interface
 │       └── src/
 │           ├── main.rs
-│           ├── args.rs        # CLI argument parsing
-│           └── runner.rs      # Script execution
+│           ├── args.rs          # CLI argument parsing
+│           └── runner.rs        # Script execution
 │
-└── stdlib/                    # Standard library modules
-    ├── aws.bp                 # @bp/aws - S3 operations
-    ├── gcp.bp                 # @bp/gcp - GCS operations
-    └── llm.bp                 # @bp/llm - LLM/agent functions
+└── stdlib/                      # Standard library modules
+    ├── aws.bp                   # @bp/aws - S3 operations
+    ├── gcp.bp                   # @bp/gcp - GCS operations
+    └── llm.bp                   # @bp/llm - LLM/agent functions
 ```
 
 ---
