@@ -7,17 +7,70 @@ pub use repl::{eval_expression, repl};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use blueprint_engine_core::{BlueprintError, Result, Value};
+use blueprint_engine_core::{
+    BlueprintError, Permissions, Policy, Result, Value, with_permissions_async,
+};
 use blueprint_engine_eval::{Checker, Evaluator, Scope, triggers};
 use blueprint_engine_parser::parse;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+
+use crate::workspace::Workspace;
+
+#[derive(Clone, Default)]
+pub struct PermissionFlags {
+    pub sandbox: bool,
+    pub allow_all: bool,
+    pub ask: bool,
+    pub allow: Vec<String>,
+    pub deny: Vec<String>,
+}
+
+impl PermissionFlags {
+    pub fn resolve(&self, workspace_perms: Option<Permissions>) -> Option<Arc<Permissions>> {
+        if self.allow_all {
+            return None;
+        }
+
+        if self.sandbox {
+            return Some(Arc::new(Permissions::none()));
+        }
+
+        if self.ask {
+            return Some(Arc::new(Permissions::ask_all()));
+        }
+
+        let has_cli_flags = !self.allow.is_empty() || !self.deny.is_empty();
+
+        if has_cli_flags {
+            let perms = Permissions {
+                policy: Policy::Deny,
+                allow: self.allow.clone(),
+                ask: vec![],
+                deny: self.deny.clone(),
+            };
+            return Some(Arc::new(perms));
+        }
+
+        workspace_perms.map(Arc::new)
+    }
+}
+
+fn load_workspace_permissions(script_path: Option<&Path>) -> Option<Permissions> {
+    let start_dir = script_path
+        .and_then(|p| p.parent())
+        .map(|p| p.to_path_buf())
+        .or_else(|| std::env::current_dir().ok())?;
+
+    Workspace::find(&start_dir).map(|ws| ws.config.permissions)
+}
 
 pub async fn run_scripts(
     scripts: Vec<PathBuf>,
     jobs: usize,
     verbose: bool,
     script_args: Vec<String>,
+    perm_flags: PermissionFlags,
 ) -> Result<()> {
     let scripts = expand_globs(scripts)?;
 
@@ -37,12 +90,14 @@ pub async fn run_scripts(
     };
 
     let script_args = Arc::new(script_args);
+    let perm_flags = Arc::new(perm_flags);
     let mut join_set: JoinSet<std::result::Result<(PathBuf, Option<BlueprintError>), (PathBuf, BlueprintError)>> =
         JoinSet::new();
 
     for script_path in scripts {
         let semaphore = semaphore.clone();
         let script_args = script_args.clone();
+        let perm_flags = perm_flags.clone();
 
         join_set.spawn(async move {
             let _permit = if let Some(sem) = &semaphore {
@@ -51,7 +106,7 @@ pub async fn run_scripts(
                 None
             };
 
-            match run_single_script(&script_path, (*script_args).clone(), verbose).await {
+            match run_single_script(&script_path, (*script_args).clone(), verbose, &perm_flags).await {
                 Ok(()) => Ok((script_path, None)),
                 Err(e) => {
                     if matches!(e.inner_error(), BlueprintError::Exit { .. }) {
@@ -113,6 +168,7 @@ async fn run_single_script(
     path: &Path,
     script_args: Vec<String>,
     verbose: bool,
+    perm_flags: &PermissionFlags,
 ) -> Result<()> {
     let source = tokio::fs::read_to_string(path)
         .await
@@ -137,40 +193,51 @@ async fn run_single_script(
         return Err(BlueprintError::ValueError { message });
     }
 
-    let mut evaluator = Evaluator::new();
-    evaluator.set_file(path);
-    let scope = Scope::new_global();
+    let workspace_perms = load_workspace_permissions(Some(path));
+    let permissions = perm_flags.resolve(workspace_perms);
 
-    let argv: Vec<Value> = std::iter::once(Value::String(Arc::new(filename.clone())))
-        .chain(script_args.into_iter().map(|s| Value::String(Arc::new(s))))
-        .collect();
+    let run_script = async {
+        let mut evaluator = Evaluator::new();
+        evaluator.set_file(path);
+        let scope = Scope::new_global();
 
-    scope
-        .define("argv", Value::List(Arc::new(tokio::sync::RwLock::new(argv))))
-        .await;
+        let argv: Vec<Value> = std::iter::once(Value::String(Arc::new(filename.clone())))
+            .chain(script_args.into_iter().map(|s| Value::String(Arc::new(s))))
+            .collect();
 
-    let abs_path = std::fs::canonicalize(path)
-        .unwrap_or_else(|_| path.to_path_buf())
-        .to_string_lossy()
-        .to_string();
-    scope
-        .define("__file__", Value::String(Arc::new(abs_path)))
-        .await;
+        scope
+            .define("argv", Value::List(Arc::new(tokio::sync::RwLock::new(argv))))
+            .await;
 
-    if verbose {
-        scope.define("__verbose__", Value::Bool(true)).await;
-    }
+        let abs_path = std::fs::canonicalize(path)
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .to_string();
+        scope
+            .define("__file__", Value::String(Arc::new(abs_path)))
+            .await;
 
-    evaluator.eval(&module, scope).await?;
-
-    if triggers::has_active_triggers().await {
         if verbose {
-            eprintln!("Active triggers detected, waiting for shutdown...");
+            scope.define("__verbose__", Value::Bool(true)).await;
         }
-        triggers::wait_for_shutdown().await;
-    }
 
-    Ok(())
+        evaluator.eval(&module, scope).await?;
+
+        if triggers::has_active_triggers().await {
+            if verbose {
+                eprintln!("Active triggers detected, waiting for shutdown...");
+            }
+            triggers::wait_for_shutdown().await;
+        }
+
+        Ok(())
+    };
+
+    if let Some(perms) = permissions {
+        with_permissions_async(perms, || run_script).await
+    } else {
+        run_script.await
+    }
 }
 
 pub async fn check_scripts(scripts: Vec<PathBuf>, verbose: bool) -> Result<()> {
@@ -221,38 +288,54 @@ pub async fn check_scripts(scripts: Vec<PathBuf>, verbose: bool) -> Result<()> {
     }
 }
 
-pub async fn run_inline(code: &str, verbose: bool, script_args: Vec<String>) -> Result<()> {
+pub async fn run_inline(
+    code: &str,
+    verbose: bool,
+    script_args: Vec<String>,
+    perm_flags: PermissionFlags,
+) -> Result<()> {
     let module = parse("<inline>", code)?;
 
-    let mut evaluator = Evaluator::new();
-    let scope = Scope::new_global();
+    let workspace_perms = load_workspace_permissions(None);
+    let permissions = perm_flags.resolve(workspace_perms);
 
-    let argv: Vec<Value> = std::iter::once(Value::String(Arc::new("<inline>".to_string())))
-        .chain(script_args.into_iter().map(|s| Value::String(Arc::new(s))))
-        .collect();
+    let run_script = async {
+        let mut evaluator = Evaluator::new();
+        let scope = Scope::new_global();
 
-    scope
-        .define("argv", Value::List(Arc::new(tokio::sync::RwLock::new(argv))))
-        .await;
+        let argv: Vec<Value> = std::iter::once(Value::String(Arc::new("<inline>".to_string())))
+            .chain(script_args.into_iter().map(|s| Value::String(Arc::new(s))))
+            .collect();
 
-    scope
-        .define("__file__", Value::String(Arc::new("<inline>".to_string())))
-        .await;
+        scope
+            .define("argv", Value::List(Arc::new(tokio::sync::RwLock::new(argv))))
+            .await;
 
-    if verbose {
-        scope.define("__verbose__", Value::Bool(true)).await;
-    }
+        scope
+            .define("__file__", Value::String(Arc::new("<inline>".to_string())))
+            .await;
 
-    evaluator.eval(&module, scope).await?;
-
-    if triggers::has_active_triggers().await {
         if verbose {
-            eprintln!("Active triggers detected, waiting for shutdown...");
+            scope.define("__verbose__", Value::Bool(true)).await;
         }
-        triggers::wait_for_shutdown().await;
-    }
 
-    Ok(())
+        evaluator.eval(&module, scope).await?;
+
+        if triggers::has_active_triggers().await {
+            if verbose {
+                eprintln!("Active triggers detected, waiting for shutdown...");
+            }
+            triggers::wait_for_shutdown().await;
+        }
+
+        Ok(())
+    };
+
+    if let Some(perms) = permissions {
+        with_permissions_async(perms, || run_script).await
+    } else {
+        run_script.await
+    }
 }
 
 fn expand_globs(patterns: Vec<PathBuf>) -> Result<Vec<PathBuf>> {

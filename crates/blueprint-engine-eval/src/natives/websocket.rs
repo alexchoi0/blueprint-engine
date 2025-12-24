@@ -10,7 +10,7 @@ use axum::{
     routing::get,
     Router,
 };
-use blueprint_engine_core::{BlueprintError, NativeFunction, Result, StreamIterator, Value};
+use blueprint_engine_core::{BlueprintError, NativeFunction, Result, StreamIterator, Value, check_ws};
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
@@ -112,6 +112,7 @@ async fn ws_connect(args: Vec<Value>, kwargs: HashMap<String, Value>) -> Result<
     }
 
     let url_str = args[0].as_string()?;
+    check_ws(&url_str).await?;
 
     let headers: HashMap<String, String> = if let Some(h) = kwargs.get("headers") {
         match h {

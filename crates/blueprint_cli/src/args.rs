@@ -25,6 +25,21 @@ pub enum Commands {
         #[arg(short, long, help = "Verbose output")]
         verbose: bool,
 
+        #[arg(long, help = "Run in sandbox mode with all permissions denied")]
+        sandbox: bool,
+
+        #[arg(long, help = "Allow all permissions without prompting (trust mode)")]
+        allow_all: bool,
+
+        #[arg(long, help = "Prompt for all permissions interactively")]
+        ask: bool,
+
+        #[arg(long = "allow", value_name = "RULE", help = "Allow permission (e.g., 'fs.read:./data/*', 'process.run:git')")]
+        allow: Vec<String>,
+
+        #[arg(long = "deny", value_name = "RULE", help = "Deny permission (e.g., 'process.shell', 'fs.delete:*')")]
+        deny: Vec<String>,
+
         #[arg(last = true, help = "Arguments passed to scripts")]
         script_args: Vec<String>,
     },

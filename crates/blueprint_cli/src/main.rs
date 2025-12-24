@@ -7,6 +7,7 @@ use clap::Parser;
 use tokio::runtime::Builder;
 
 use args::{Cli, Commands};
+use runner::PermissionFlags;
 
 fn main() {
     let cli = Cli::parse();
@@ -23,12 +24,24 @@ fn main() {
                 exec,
                 jobs,
                 verbose,
+                sandbox,
+                allow_all,
+                ask,
+                allow,
+                deny,
                 script_args,
             } => {
+                let perm_flags = PermissionFlags {
+                    sandbox,
+                    allow_all,
+                    ask,
+                    allow,
+                    deny,
+                };
                 if let Some(code) = exec {
-                    runner::run_inline(&code, verbose, script_args).await
+                    runner::run_inline(&code, verbose, script_args, perm_flags).await
                 } else {
-                    runner::run_scripts(scripts, jobs, verbose, script_args).await
+                    runner::run_scripts(scripts, jobs, verbose, script_args, perm_flags).await
                 }
             }
             Commands::Check { scripts, verbose } => runner::check_scripts(scripts, verbose).await,

@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use blueprint_engine_core::{BlueprintError, NativeFunction, ProcessResult, Result, Value};
+use blueprint_engine_core::{
+    BlueprintError, NativeFunction, ProcessResult, Result, Value,
+    check_process_run, check_process_shell, check_env_read, check_env_write,
+};
 use tokio::process::Command;
 
 pub fn get_functions() -> Vec<NativeFunction> {
@@ -32,6 +35,7 @@ async fn run(args: Vec<Value>, kwargs: HashMap<String, Value>) -> Result<Value> 
             strs
         }
         Value::String(s) => {
+            check_process_shell().await?;
             return shell_impl(s.as_ref(), &kwargs).await;
         }
         other => {
@@ -49,6 +53,8 @@ async fn run(args: Vec<Value>, kwargs: HashMap<String, Value>) -> Result<Value> 
     }
 
     let program = &cmd_args[0];
+    check_process_run(program).await?;
+
     let args_slice = &cmd_args[1..];
 
     let cwd = kwargs.get("cwd").map(|v| v.to_display_string());
@@ -86,6 +92,8 @@ async fn shell(args: Vec<Value>, kwargs: HashMap<String, Value>) -> Result<Value
             message: format!("shell() takes exactly 1 argument ({} given)", args.len()),
         });
     }
+
+    check_process_shell().await?;
 
     let cmd = args[0].as_string()?;
     shell_impl(&cmd, &kwargs).await
@@ -132,6 +140,8 @@ async fn env_var(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
     }
 
     let name = args[0].as_string()?;
+    check_env_read(&name).await?;
+
     let default = if args.len() == 2 {
         args[1].to_display_string()
     } else {
@@ -148,6 +158,8 @@ async fn set_env(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
             message: format!("set_env() takes exactly 2 arguments ({} given)", args.len()),
         });
     }
+
+    check_env_write().await?;
 
     let name = args[0].as_string()?;
     let value = args[1].as_string()?;

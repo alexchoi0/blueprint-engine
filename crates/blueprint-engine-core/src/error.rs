@@ -139,6 +139,13 @@ pub enum BlueprintError {
     #[error("Unsupported: {message}")]
     Unsupported { message: String },
 
+    #[error("Permission denied: {operation} on '{resource}'")]
+    PermissionDenied {
+        operation: String,
+        resource: String,
+        hint: String,
+    },
+
     #[error("break")]
     Break,
 

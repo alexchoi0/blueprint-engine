@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use blueprint_engine_core::{BlueprintError, HttpResponse, NativeFunction, Result, StreamIterator, Value};
+use blueprint_engine_core::{
+    BlueprintError, HttpResponse, NativeFunction, Result, StreamIterator, Value,
+    check_http, check_fs_write,
+};
 use futures_util::StreamExt;
 use reqwest::Client;
 use tokio::sync::mpsc;
@@ -25,6 +28,7 @@ async fn http_request(args: Vec<Value>, kwargs: HashMap<String, Value>) -> Resul
 
     let method = args[0].as_string()?.to_uppercase();
     let url = args[1].as_string()?;
+    check_http(&url).await?;
 
     let body = if args.len() >= 3 {
         let v = &args[2];
@@ -171,6 +175,8 @@ async fn download(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<V
 
     let url = args[0].as_string()?;
     let path = args[1].as_string()?;
+    check_http(&url).await?;
+    check_fs_write(&path).await?;
 
     let response = reqwest::get(&url)
         .await

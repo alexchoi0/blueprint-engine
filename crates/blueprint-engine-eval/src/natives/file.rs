@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use blueprint_engine_core::{BlueprintError, NativeFunction, Result, Value};
+use blueprint_engine_core::{
+    BlueprintError, NativeFunction, Result, Value,
+    check_fs_read, check_fs_write, check_fs_delete,
+};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::RwLock;
@@ -34,6 +37,8 @@ async fn read_file(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<
     }
 
     let path = args[0].as_string()?;
+    check_fs_read(&path).await?;
+
     let content = fs::read_to_string(&path)
         .await
         .map_err(|e| BlueprintError::IoError {
@@ -52,6 +57,8 @@ async fn write_file(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result
     }
 
     let path = args[0].as_string()?;
+    check_fs_write(&path).await?;
+
     let content = args[1].as_string()?;
 
     fs::write(&path, &content)
@@ -72,6 +79,8 @@ async fn append_file(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Resul
     }
 
     let path = args[0].as_string()?;
+    check_fs_write(&path).await?;
+
     let content = args[1].as_string()?;
 
     let mut file = fs::OpenOptions::new()
@@ -102,6 +111,8 @@ async fn exists(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Val
     }
 
     let path = args[0].as_string()?;
+    check_fs_read(&path).await?;
+
     let exists = fs::try_exists(&path).await.unwrap_or(false);
 
     Ok(Value::Bool(exists))
@@ -115,6 +126,8 @@ async fn is_file(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
     }
 
     let path = args[0].as_string()?;
+    check_fs_read(&path).await?;
+
     let is_file = fs::metadata(&path)
         .await
         .map(|m| m.is_file())
@@ -131,6 +144,8 @@ async fn is_dir(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Val
     }
 
     let path = args[0].as_string()?;
+    check_fs_read(&path).await?;
+
     let is_dir = fs::metadata(&path)
         .await
         .map(|m| m.is_dir())
@@ -147,6 +162,7 @@ async fn glob_fn(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
     }
 
     let pattern = args[0].as_string()?;
+    check_fs_read(&pattern).await?;
 
     let paths: Vec<Value> = glob::glob(&pattern)
         .map_err(|e| BlueprintError::GlobError {
@@ -167,6 +183,7 @@ async fn mkdir(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Valu
     }
 
     let path = args[0].as_string()?;
+    check_fs_write(&path).await?;
 
     fs::create_dir_all(&path)
         .await
@@ -186,6 +203,7 @@ async fn rm(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> 
     }
 
     let path = args[0].as_string()?;
+    check_fs_delete(&path).await?;
 
     let metadata = fs::metadata(&path)
         .await
@@ -216,6 +234,8 @@ async fn cp(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> 
 
     let src = args[0].as_string()?;
     let dst = args[1].as_string()?;
+    check_fs_read(&src).await?;
+    check_fs_write(&dst).await?;
 
     fs::copy(&src, &dst)
         .await
@@ -236,6 +256,9 @@ async fn mv(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Value> 
 
     let src = args[0].as_string()?;
     let dst = args[1].as_string()?;
+    check_fs_read(&src).await?;
+    check_fs_write(&dst).await?;
+    check_fs_delete(&src).await?;
 
     fs::rename(&src, &dst)
         .await
@@ -255,6 +278,7 @@ async fn readdir(args: Vec<Value>, _kwargs: HashMap<String, Value>) -> Result<Va
     }
 
     let path = args[0].as_string()?;
+    check_fs_read(&path).await?;
 
     let mut entries = fs::read_dir(&path)
         .await

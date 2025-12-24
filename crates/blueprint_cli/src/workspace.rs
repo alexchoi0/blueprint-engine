@@ -2,12 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use blueprint_engine_core::{BlueprintError, Result};
+use blueprint_engine_core::{BlueprintError, Permissions, Result};
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct BpToml {
     #[serde(default)]
     pub workspace: WorkspaceConfig,
+    #[serde(default)]
+    pub permissions: Permissions,
     #[serde(default)]
     pub dependencies: HashMap<String, Dependency>,
 }
@@ -256,6 +258,7 @@ pub fn init_workspace(path: &Path) -> Result<()> {
             description: None,
             authors: None,
         },
+        permissions: Permissions::default(),
         dependencies: HashMap::new(),
     };
 
