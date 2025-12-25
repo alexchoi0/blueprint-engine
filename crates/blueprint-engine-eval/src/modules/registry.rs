@@ -3,11 +3,11 @@ use std::sync::Arc;
 
 use blueprint_engine_core::NativeFunction;
 
-pub struct NativeModuleRegistry {
+pub struct ModuleRegistry {
     modules: HashMap<String, HashMap<String, Arc<NativeFunction>>>,
 }
 
-impl NativeModuleRegistry {
+impl ModuleRegistry {
     pub fn new() -> Self {
         Self {
             modules: HashMap::new(),
@@ -41,7 +41,7 @@ impl NativeModuleRegistry {
     }
 }
 
-impl Default for NativeModuleRegistry {
+impl Default for ModuleRegistry {
     fn default() -> Self {
         Self::new()
     }

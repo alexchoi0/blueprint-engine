@@ -60,7 +60,10 @@ fn main() {
         if exit_code == 0 {
             std::process::exit(0);
         }
-        if !matches!(e.inner_error(), BlueprintError::Exit { .. } | BlueprintError::Silent) {
+        if !matches!(
+            e.inner_error(),
+            BlueprintError::Exit { .. } | BlueprintError::Silent
+        ) {
             eprintln!("error: {}", e);
         }
         std::process::exit(exit_code);

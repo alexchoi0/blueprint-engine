@@ -4,8 +4,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::error::Result;
 use super::Value;
+use crate::error::Result;
 
 pub type NativeFuture = Pin<Box<dyn Future<Output = Result<Value>> + Send>>;
 pub type NativeFn = Arc<dyn Fn(Vec<Value>, HashMap<String, Value>) -> NativeFuture + Send + Sync>;

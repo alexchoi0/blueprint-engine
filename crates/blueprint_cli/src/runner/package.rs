@@ -1,5 +1,5 @@
 use blueprint_engine_core::{
-    BlueprintError, PackageSpec, Result, fetch_package, find_workspace_root, get_packages_dir,
+    fetch_package, find_workspace_root, get_packages_dir, BlueprintError, PackageSpec, Result,
 };
 
 pub async fn install_package(package: &str) -> Result<()> {
@@ -37,7 +37,10 @@ pub async fn uninstall_package(package: &str) -> Result<()> {
         }
     } else {
         if !user_dir.exists() {
-            println!("No packages from @{}/{} are installed", spec.user, spec.repo);
+            println!(
+                "No packages from @{}/{} are installed",
+                spec.user, spec.repo
+            );
             return Ok(());
         }
         let mut found = false;
@@ -60,7 +63,10 @@ pub async fn uninstall_package(package: &str) -> Result<()> {
             }
         }
         if !found {
-            println!("No packages from @{}/{} are installed", spec.user, spec.repo);
+            println!(
+                "No packages from @{}/{} are installed",
+                spec.user, spec.repo
+            );
         }
     }
 
@@ -96,10 +102,12 @@ pub async fn list_packages() -> Result<()> {
 
         let user = user_entry.file_name().to_string_lossy().to_string();
 
-        for pkg_entry in std::fs::read_dir(user_entry.path()).map_err(|e| BlueprintError::IoError {
-            path: user_entry.path().to_string_lossy().to_string(),
-            message: e.to_string(),
-        })? {
+        for pkg_entry in
+            std::fs::read_dir(user_entry.path()).map_err(|e| BlueprintError::IoError {
+                path: user_entry.path().to_string_lossy().to_string(),
+                message: e.to_string(),
+            })?
+        {
             let pkg_entry = pkg_entry.map_err(|e| BlueprintError::IoError {
                 path: user_entry.path().to_string_lossy().to_string(),
                 message: e.to_string(),
@@ -138,12 +146,11 @@ pub async fn sync_workspace() -> Result<()> {
         message: e.to_string(),
     })?;
 
-    let workspace = crate::workspace::Workspace::find(&current_dir).ok_or_else(|| {
-        BlueprintError::IoError {
+    let workspace =
+        crate::workspace::Workspace::find(&current_dir).ok_or_else(|| BlueprintError::IoError {
             path: current_dir.to_string_lossy().to_string(),
             message: "No BP.toml found in current directory or any parent".into(),
-        }
-    })?;
+        })?;
 
     if workspace.config.dependencies.is_empty() {
         println!("No dependencies to install");

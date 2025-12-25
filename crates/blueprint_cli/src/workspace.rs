@@ -42,12 +42,12 @@ impl Dependency {
     pub fn version(&self) -> &str {
         match self {
             Dependency::Simple(v) => v,
-            Dependency::Detailed(d) => {
-                d.tag.as_deref()
-                    .or(d.branch.as_deref())
-                    .or(d.version.as_deref())
-                    .unwrap_or("main")
-            }
+            Dependency::Detailed(d) => d
+                .tag
+                .as_deref()
+                .or(d.branch.as_deref())
+                .or(d.version.as_deref())
+                .unwrap_or("main"),
         }
     }
 
@@ -98,10 +98,11 @@ impl Workspace {
 
     pub fn load(root: &Path) -> Result<Self> {
         let bp_toml_path = root.join("BP.toml");
-        let content = std::fs::read_to_string(&bp_toml_path).map_err(|e| BlueprintError::IoError {
-            path: bp_toml_path.to_string_lossy().to_string(),
-            message: e.to_string(),
-        })?;
+        let content =
+            std::fs::read_to_string(&bp_toml_path).map_err(|e| BlueprintError::IoError {
+                path: bp_toml_path.to_string_lossy().to_string(),
+                message: e.to_string(),
+            })?;
 
         let config: BpToml = toml::from_str(&content).map_err(|e| BlueprintError::IoError {
             path: bp_toml_path.to_string_lossy().to_string(),

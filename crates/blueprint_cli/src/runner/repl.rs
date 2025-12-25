@@ -174,11 +174,10 @@ async fn repl_interactive() -> Result<()> {
         .edit_mode(EditMode::Emacs)
         .build();
 
-    let mut rl: Editor<ReplHelper, _> = Editor::with_config(config).map_err(|e| {
-        BlueprintError::InternalError {
+    let mut rl: Editor<ReplHelper, _> =
+        Editor::with_config(config).map_err(|e| BlueprintError::InternalError {
             message: format!("Failed to create REPL: {}", e),
-        }
-    })?;
+        })?;
 
     rl.set_helper(Some(ReplHelper));
     rl.bind_sequence(
@@ -204,8 +203,7 @@ async fn repl_interactive() -> Result<()> {
                 }
 
                 let clean_code = strip_continuation_prefixes(&line);
-                if let Some(exit_err) =
-                    execute_repl_code(&mut evaluator, &scope, &clean_code).await
+                if let Some(exit_err) = execute_repl_code(&mut evaluator, &scope, &clean_code).await
                 {
                     println!();
                     return Err(exit_err);
@@ -343,12 +341,13 @@ async fn repl_server(port: u16) -> Result<()> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     println!("REPL server listening on http://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(|e| BlueprintError::IoError {
-            path: format!("127.0.0.1:{}", port),
-            message: e.to_string(),
-        })?;
+    let listener =
+        tokio::net::TcpListener::bind(addr)
+            .await
+            .map_err(|e| BlueprintError::IoError {
+                path: format!("127.0.0.1:{}", port),
+                message: e.to_string(),
+            })?;
 
     axum::serve(listener, app)
         .await
@@ -417,13 +416,10 @@ async fn eval_remote(code: &str, port: u16) -> Result<()> {
             message: e.to_string(),
         })?;
 
-    let eval_resp: EvalResponse = resp
-        .json()
-        .await
-        .map_err(|e| BlueprintError::HttpError {
-            url: format!("http://127.0.0.1:{}/eval", port),
-            message: e.to_string(),
-        })?;
+    let eval_resp: EvalResponse = resp.json().await.map_err(|e| BlueprintError::HttpError {
+        url: format!("http://127.0.0.1:{}/eval", port),
+        message: e.to_string(),
+    })?;
 
     if eval_resp.success {
         if let Some(result) = eval_resp.result {
@@ -432,7 +428,9 @@ async fn eval_remote(code: &str, port: u16) -> Result<()> {
         Ok(())
     } else {
         Err(BlueprintError::InternalError {
-            message: eval_resp.error.unwrap_or_else(|| "unknown error".to_string()),
+            message: eval_resp
+                .error
+                .unwrap_or_else(|| "unknown error".to_string()),
         })
     }
 }

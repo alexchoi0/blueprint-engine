@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use blueprint_engine_core::{BlueprintError, Result, Value};
-use blueprint_starlark_syntax::syntax::ast::BinOp;
 use blueprint_engine_parser::AssignOp;
+use blueprint_starlark_syntax::syntax::ast::BinOp;
 
 pub fn eval_unary_minus(value: Value) -> Result<Value> {
     match value {
@@ -45,9 +45,7 @@ pub async fn eval_add(left: Value, right: Value) -> Result<Value> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 + b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + *b as f64)),
-        (Value::String(a), Value::String(b)) => {
-            Ok(Value::String(Arc::new(format!("{}{}", a, b))))
-        }
+        (Value::String(a), Value::String(b)) => Ok(Value::String(Arc::new(format!("{}{}", a, b)))),
         (Value::List(a), Value::List(b)) => {
             let mut result = a.read().await.clone();
             result.extend(b.read().await.iter().cloned());
@@ -219,7 +217,11 @@ pub fn format_string(fmt: &str, args: &Value) -> Result<Value> {
                 chars.next();
                 result.push('%');
             } else {
-                while chars.peek().map(|c| c.is_ascii_digit() || *c == '-' || *c == '+' || *c == ' ' || *c == '.').unwrap_or(false) {
+                while chars
+                    .peek()
+                    .map(|c| c.is_ascii_digit() || *c == '-' || *c == '+' || *c == ' ' || *c == '.')
+                    .unwrap_or(false)
+                {
                     chars.next();
                 }
 
@@ -269,8 +271,12 @@ where
     let ordering = match (&left, &right) {
         (Value::Int(a), Value::Int(b)) => a.cmp(b),
         (Value::Float(a), Value::Float(b)) => a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-        (Value::Int(a), Value::Float(b)) => (*a as f64).partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal),
-        (Value::Float(a), Value::Int(b)) => a.partial_cmp(&(*b as f64)).unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Int(a), Value::Float(b)) => (*a as f64)
+            .partial_cmp(b)
+            .unwrap_or(std::cmp::Ordering::Equal),
+        (Value::Float(a), Value::Int(b)) => a
+            .partial_cmp(&(*b as f64))
+            .unwrap_or(std::cmp::Ordering::Equal),
         (Value::String(a), Value::String(b)) => a.cmp(b),
         _ => {
             return Err(BlueprintError::TypeError {
@@ -282,7 +288,11 @@ where
     Ok(Value::Bool(cmp(ordering)))
 }
 
-pub async fn eval_in(left: Value, right: Value, value_to_dict_key: impl Fn(&Value) -> Result<String>) -> Result<Value> {
+pub async fn eval_in(
+    left: Value,
+    right: Value,
+    value_to_dict_key: impl Fn(&Value) -> Result<String>,
+) -> Result<Value> {
     match &right {
         Value::List(l) => {
             let items = l.read().await;

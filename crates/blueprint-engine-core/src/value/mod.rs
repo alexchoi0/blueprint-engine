@@ -4,7 +4,9 @@ mod io;
 mod methods;
 mod structs;
 
-pub use functions::{LambdaFunction, NativeFunction, NativeFn, NativeFuture, Parameter, ParameterKind, UserFunction};
+pub use functions::{
+    LambdaFunction, NativeFn, NativeFunction, NativeFuture, Parameter, ParameterKind, UserFunction,
+};
 pub use generator::{Generator, GeneratorMessage, StreamIterator};
 pub use io::{HttpResponse, ProcessResult};
 pub use structs::{StructField, StructInstance, StructType, TypeAnnotation};
@@ -243,36 +245,30 @@ impl Value {
                 }
             }
             Value::String(s) => s.as_ref().clone(),
-            Value::List(l) => {
-                match l.try_read() {
-                    Ok(guard) => {
-                        let items: Vec<String> = guard.iter().map(|v| v.repr()).collect();
-                        format!("[{}]", items.join(", "))
-                    }
-                    Err(_) => "[<locked>]".into(),
+            Value::List(l) => match l.try_read() {
+                Ok(guard) => {
+                    let items: Vec<String> = guard.iter().map(|v| v.repr()).collect();
+                    format!("[{}]", items.join(", "))
                 }
-            }
-            Value::Dict(d) => {
-                match d.try_read() {
-                    Ok(guard) => {
-                        let items: Vec<String> = guard
-                            .iter()
-                            .map(|(k, v)| format!("{:?}: {}", k, v.repr()))
-                            .collect();
-                        format!("{{{}}}", items.join(", "))
-                    }
-                    Err(_) => "{<locked>}".into(),
+                Err(_) => "[<locked>]".into(),
+            },
+            Value::Dict(d) => match d.try_read() {
+                Ok(guard) => {
+                    let items: Vec<String> = guard
+                        .iter()
+                        .map(|(k, v)| format!("{:?}: {}", k, v.repr()))
+                        .collect();
+                    format!("{{{}}}", items.join(", "))
                 }
-            }
-            Value::Set(s) => {
-                match s.try_read() {
-                    Ok(guard) => {
-                        let items: Vec<String> = guard.iter().map(|v| v.repr()).collect();
-                        format!("{{{}}}", items.join(", "))
-                    }
-                    Err(_) => "{<locked>}".into(),
+                Err(_) => "{<locked>}".into(),
+            },
+            Value::Set(s) => match s.try_read() {
+                Ok(guard) => {
+                    let items: Vec<String> = guard.iter().map(|v| v.repr()).collect();
+                    format!("{{{}}}", items.join(", "))
                 }
-            }
+                Err(_) => "{<locked>}".into(),
+            },
             Value::Tuple(t) => {
                 let items: Vec<String> = t.iter().map(|v| v.repr()).collect();
                 if t.len() == 1 {

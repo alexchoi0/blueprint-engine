@@ -82,7 +82,14 @@ pub fn fetch_package(spec: &PackageSpec, dest: &PathBuf) -> Result<()> {
     let repo_url = format!("https://github.com/{}/{}.git", spec.user, spec.repo);
 
     let output = std::process::Command::new("git")
-        .args(["clone", "--depth", "1", "--branch", &spec.version, &repo_url])
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            "--branch",
+            &spec.version,
+            &repo_url,
+        ])
         .arg(dest)
         .output()
         .map_err(|e| BlueprintError::IoError {

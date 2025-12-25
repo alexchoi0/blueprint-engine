@@ -1,6 +1,6 @@
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use tokio::sync::{mpsc, oneshot, Mutex, RwLock};

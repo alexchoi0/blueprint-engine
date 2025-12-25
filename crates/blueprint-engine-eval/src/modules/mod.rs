@@ -18,7 +18,7 @@ mod time;
 pub mod triggers;
 mod websocket;
 
-pub use registry::NativeModuleRegistry;
+pub use registry::ModuleRegistry;
 
 use crate::eval::Evaluator;
 
@@ -27,8 +27,8 @@ pub fn register_builtins(evaluator: &mut Evaluator) {
     console::register(evaluator);
 }
 
-pub fn build_registry() -> NativeModuleRegistry {
-    let mut registry = NativeModuleRegistry::new();
+pub fn build_registry() -> ModuleRegistry {
+    let mut registry = ModuleRegistry::new();
     registry.register_module("approval", approval::get_functions());
     registry.register_module("crypto", crypto::get_functions());
     registry.register_module("file", file::get_functions());

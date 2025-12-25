@@ -4,18 +4,16 @@ use std::sync::Arc;
 use indexmap::{IndexMap, IndexSet};
 
 use blueprint_engine_core::{
-    BlueprintError, Generator, GeneratorMessage, Result, StackFrame,
-    StructField, StructType, TypeAnnotation, Value,
+    BlueprintError, Generator, GeneratorMessage, Result, StackFrame, StructField, StructType,
+    TypeAnnotation, Value,
 };
-use blueprint_engine_parser::{
-    AstExpr, AstStmt, Clause, ExprP, ForClause, ParsedModule, StmtP,
-};
-use blueprint_starlark_syntax::syntax::ast::{AstAssignTarget, AssignTargetP, BinOp, ArgumentP};
+use blueprint_engine_parser::{AstExpr, AstStmt, Clause, ExprP, ForClause, ParsedModule, StmtP};
+use blueprint_starlark_syntax::syntax::ast::{ArgumentP, AssignTargetP, AstAssignTarget, BinOp};
 use tokio::sync::mpsc;
 
-use crate::scope::{Scope, ScopeKind};
-use super::Evaluator;
 use super::ops;
+use super::Evaluator;
+use crate::scope::{Scope, ScopeKind};
 
 impl Evaluator {
     pub async fn eval(&mut self, module: &ParsedModule, scope: Arc<Scope>) -> Result<Value> {
@@ -75,50 +73,49 @@ impl Evaluator {
                 let iterable = self.eval_expr(&for_stmt.over, scope.clone()).await?;
 
                 match &iterable {
-                    Value::Iterator(iter) => {
-                        loop {
-                            let item = iter.next().await;
-                            match item {
-                                Some(value) => {
-                                    let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
-                                    self.assign_target(&for_stmt.var, value, loop_scope.clone()).await?;
+                    Value::Iterator(iter) => loop {
+                        let item = iter.next().await;
+                        match item {
+                            Some(value) => {
+                                let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
+                                self.assign_target(&for_stmt.var, value, loop_scope.clone())
+                                    .await?;
 
-                                    match self.eval_stmt(&for_stmt.body, loop_scope).await {
-                                        Err(BlueprintError::Break) => break,
-                                        Err(BlueprintError::Continue) => continue,
-                                        Err(e) => return Err(e),
-                                        Ok(_) => {}
-                                    }
+                                match self.eval_stmt(&for_stmt.body, loop_scope).await {
+                                    Err(BlueprintError::Break) => break,
+                                    Err(BlueprintError::Continue) => continue,
+                                    Err(e) => return Err(e),
+                                    Ok(_) => {}
                                 }
-                                None => break,
                             }
+                            None => break,
                         }
-                    }
-                    Value::Generator(gen) => {
-                        loop {
-                            let item = gen.next().await;
-                            match item {
-                                Some(value) => {
-                                    let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
-                                    self.assign_target(&for_stmt.var, value, loop_scope.clone()).await?;
+                    },
+                    Value::Generator(gen) => loop {
+                        let item = gen.next().await;
+                        match item {
+                            Some(value) => {
+                                let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
+                                self.assign_target(&for_stmt.var, value, loop_scope.clone())
+                                    .await?;
 
-                                    match self.eval_stmt(&for_stmt.body, loop_scope).await {
-                                        Err(BlueprintError::Break) => break,
-                                        Err(BlueprintError::Continue) => continue,
-                                        Err(e) => return Err(e),
-                                        Ok(_) => {}
-                                    }
+                                match self.eval_stmt(&for_stmt.body, loop_scope).await {
+                                    Err(BlueprintError::Break) => break,
+                                    Err(BlueprintError::Continue) => continue,
+                                    Err(e) => return Err(e),
+                                    Ok(_) => {}
                                 }
-                                None => break,
                             }
+                            None => break,
                         }
-                    }
+                    },
                     _ => {
                         let items = self.get_iterable(&iterable).await?;
 
                         for item in items {
                             let loop_scope = Scope::new_child(scope.clone(), ScopeKind::Loop);
-                            self.assign_target(&for_stmt.var, item, loop_scope.clone()).await?;
+                            self.assign_target(&for_stmt.var, item, loop_scope.clone())
+                                .await?;
 
                             match self.eval_stmt(&for_stmt.body, loop_scope).await {
                                 Err(BlueprintError::Break) => break,
@@ -145,9 +142,7 @@ impl Evaluator {
                 })
             }
 
-            StmtP::Yield(expr) => {
-                self.handle_yield(expr.as_ref(), scope).await
-            }
+            StmtP::Yield(expr) => self.handle_yield(expr.as_ref(), scope).await,
 
             StmtP::Pass => Ok(Value::None),
 
@@ -157,23 +152,19 @@ impl Evaluator {
                 Ok(Value::None)
             }
 
-            StmtP::Load(load) => {
-                self.eval_load(load, scope).await
-            }
+            StmtP::Load(load) => self.eval_load(load, scope).await,
 
-            StmtP::Struct(struct_def) => {
-                self.eval_struct_def(struct_def, scope).await
-            }
+            StmtP::Struct(struct_def) => self.eval_struct_def(struct_def, scope).await,
 
-            StmtP::Match(match_stmt) => {
-                self.eval_match(match_stmt, scope).await
-            }
+            StmtP::Match(match_stmt) => self.eval_match(match_stmt, scope).await,
         }
     }
 
     pub async fn eval_match(
         &self,
-        match_stmt: &blueprint_starlark_syntax::syntax::ast::MatchP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
+        match_stmt: &blueprint_starlark_syntax::syntax::ast::MatchP<
+            blueprint_starlark_syntax::syntax::ast::AstNoPayload,
+        >,
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let subject = self.eval_expr(&match_stmt.subject, scope.clone()).await?;
@@ -181,7 +172,10 @@ impl Evaluator {
         for case in &match_stmt.cases {
             let pattern_scope = Scope::new_child(scope.clone(), ScopeKind::Block);
 
-            if self.match_pattern(&case.node.pattern, &subject, &pattern_scope).await? {
+            if self
+                .match_pattern(&case.node.pattern, &subject, &pattern_scope)
+                .await?
+            {
                 if let Some(ref guard) = case.node.guard {
                     let guard_val = self.eval_expr(guard, pattern_scope.clone()).await?;
                     if !guard_val.is_truthy() {
@@ -233,62 +227,56 @@ impl Evaluator {
                 Ok(pattern_val == *subject)
             }
 
-            ExprP::List(patterns) => {
-                match subject {
-                    Value::List(l) => {
-                        let items = l.read().await;
-                        if items.len() != patterns.len() {
+            ExprP::List(patterns) => match subject {
+                Value::List(l) => {
+                    let items = l.read().await;
+                    if items.len() != patterns.len() {
+                        return Ok(false);
+                    }
+                    for (pat, item) in patterns.iter().zip(items.iter()) {
+                        if !self.match_pattern(pat, item, scope).await? {
                             return Ok(false);
                         }
-                        for (pat, item) in patterns.iter().zip(items.iter()) {
-                            if !self.match_pattern(pat, item, scope).await? {
-                                return Ok(false);
-                            }
-                        }
-                        Ok(true)
                     }
-                    _ => Ok(false),
+                    Ok(true)
                 }
-            }
+                _ => Ok(false),
+            },
 
-            ExprP::Tuple(patterns) => {
-                match subject {
-                    Value::Tuple(t) => {
-                        if t.len() != patterns.len() {
+            ExprP::Tuple(patterns) => match subject {
+                Value::Tuple(t) => {
+                    if t.len() != patterns.len() {
+                        return Ok(false);
+                    }
+                    for (pat, item) in patterns.iter().zip(t.iter()) {
+                        if !self.match_pattern(pat, item, scope).await? {
                             return Ok(false);
                         }
-                        for (pat, item) in patterns.iter().zip(t.iter()) {
-                            if !self.match_pattern(pat, item, scope).await? {
-                                return Ok(false);
-                            }
-                        }
-                        Ok(true)
                     }
-                    _ => Ok(false),
+                    Ok(true)
                 }
-            }
+                _ => Ok(false),
+            },
 
-            ExprP::Dict(pairs) => {
-                match subject {
-                    Value::Dict(d) => {
-                        let map = d.read().await;
-                        for (key_pat, val_pat) in pairs {
-                            let key = self.eval_expr(key_pat, scope.clone()).await?;
-                            let key_str = self.value_to_dict_key(&key)?;
-                            match map.get(&key_str) {
-                                Some(val) => {
-                                    if !self.match_pattern(val_pat, val, scope).await? {
-                                        return Ok(false);
-                                    }
+            ExprP::Dict(pairs) => match subject {
+                Value::Dict(d) => {
+                    let map = d.read().await;
+                    for (key_pat, val_pat) in pairs {
+                        let key = self.eval_expr(key_pat, scope.clone()).await?;
+                        let key_str = self.value_to_dict_key(&key)?;
+                        match map.get(&key_str) {
+                            Some(val) => {
+                                if !self.match_pattern(val_pat, val, scope).await? {
+                                    return Ok(false);
                                 }
-                                None => return Ok(false),
                             }
+                            None => return Ok(false),
                         }
-                        Ok(true)
                     }
-                    _ => Ok(false),
+                    Ok(true)
                 }
-            }
+                _ => Ok(false),
+            },
 
             ExprP::Op(lhs, BinOp::BitOr, rhs) => {
                 if self.match_pattern(lhs, subject, scope).await? {
@@ -308,7 +296,9 @@ impl Evaluator {
                 };
 
                 if self.is_type_constraint_pattern(name) {
-                    return self.match_type_constraint_pattern(name, args, subject, scope).await;
+                    return self
+                        .match_type_constraint_pattern(name, args, subject, scope)
+                        .await;
                 }
 
                 let instance = match subject {
@@ -335,7 +325,8 @@ impl Evaluator {
                                 Some(f) => f,
                                 None => {
                                     return Err(BlueprintError::ValueError {
-                                        message: "too many positional patterns in struct match".into(),
+                                        message: "too many positional patterns in struct match"
+                                            .into(),
                                     })
                                 }
                             };
@@ -349,11 +340,11 @@ impl Evaluator {
                             }
                             positional_idx += 1;
                         }
-                        _ => {
-                            return Err(BlueprintError::ValueError {
-                                message: "only positional and keyword arguments supported in struct patterns".into(),
-                            })
-                        }
+                        _ => return Err(BlueprintError::ValueError {
+                            message:
+                                "only positional and keyword arguments supported in struct patterns"
+                                    .into(),
+                        }),
                     }
                 }
 
@@ -377,7 +368,9 @@ impl Evaluator {
     pub async fn match_type_constraint_pattern(
         &self,
         type_name: &str,
-        args: &blueprint_starlark_syntax::syntax::ast::CallArgsP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
+        args: &blueprint_starlark_syntax::syntax::ast::CallArgsP<
+            blueprint_starlark_syntax::syntax::ast::AstNoPayload,
+        >,
         subject: &Value,
         scope: &Arc<Scope>,
     ) -> Result<bool> {
@@ -435,7 +428,9 @@ impl Evaluator {
 
     pub async fn eval_struct_def(
         &self,
-        struct_def: &blueprint_starlark_syntax::syntax::ast::StructP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
+        struct_def: &blueprint_starlark_syntax::syntax::ast::StructP<
+            blueprint_starlark_syntax::syntax::ast::AstNoPayload,
+        >,
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let struct_name = struct_def.name.node.ident.clone();
@@ -469,26 +464,25 @@ impl Evaluator {
 
     pub fn convert_type_expr(
         &self,
-        type_expr: &blueprint_starlark_syntax::syntax::ast::AstTypeExprP<blueprint_starlark_syntax::syntax::ast::AstNoPayload>,
+        type_expr: &blueprint_starlark_syntax::syntax::ast::AstTypeExprP<
+            blueprint_starlark_syntax::syntax::ast::AstNoPayload,
+        >,
     ) -> Result<TypeAnnotation> {
         self.convert_expr_to_type_annotation(&type_expr.node.expr)
     }
 
-    pub fn convert_expr_to_type_annotation(
-        &self,
-        expr: &AstExpr,
-    ) -> Result<TypeAnnotation> {
+    pub fn convert_expr_to_type_annotation(&self, expr: &AstExpr) -> Result<TypeAnnotation> {
         match &expr.node {
-            ExprP::Identifier(ident) => {
-                Ok(TypeAnnotation::Simple(ident.node.ident.clone()))
-            }
+            ExprP::Identifier(ident) => Ok(TypeAnnotation::Simple(ident.node.ident.clone())),
             ExprP::Index(pair) => {
                 let (base, index) = pair.as_ref();
                 let base_name = match &base.node {
                     ExprP::Identifier(ident) => ident.node.ident.clone(),
-                    _ => return Err(BlueprintError::ValueError {
-                        message: "invalid type annotation".into(),
-                    }),
+                    _ => {
+                        return Err(BlueprintError::ValueError {
+                            message: "invalid type annotation".into(),
+                        })
+                    }
                 };
 
                 let params = match &index.node {
@@ -522,7 +516,12 @@ impl Evaluator {
     }
 
     #[async_recursion::async_recursion]
-    pub async fn assign_target(&self, target: &AstAssignTarget, value: Value, scope: Arc<Scope>) -> Result<()> {
+    pub async fn assign_target(
+        &self,
+        target: &AstAssignTarget,
+        value: Value,
+        scope: Arc<Scope>,
+    ) -> Result<()> {
         match &target.node {
             AssignTargetP::Identifier(ident) => {
                 scope.set(ident.node.ident.as_str(), value).await;
@@ -575,21 +574,26 @@ impl Evaluator {
                     }),
                 }
             }
-            AssignTargetP::Dot(_, attr) => {
-                Err(BlueprintError::Unsupported {
-                    message: format!("attribute assignment to .{} is not supported", attr.node),
-                })
-            }
+            AssignTargetP::Dot(_, attr) => Err(BlueprintError::Unsupported {
+                message: format!("attribute assignment to .{} is not supported", attr.node),
+            }),
         }
     }
 
-    pub async fn eval_assign_target_value(&self, target: &AstAssignTarget, scope: Arc<Scope>) -> Result<Value> {
+    pub async fn eval_assign_target_value(
+        &self,
+        target: &AstAssignTarget,
+        scope: Arc<Scope>,
+    ) -> Result<Value> {
         match &target.node {
             AssignTargetP::Identifier(ident) => {
                 let name = ident.node.ident.as_str();
-                scope.get(name).await.ok_or_else(|| BlueprintError::NameError {
-                    name: name.to_string(),
-                })
+                scope
+                    .get(name)
+                    .await
+                    .ok_or_else(|| BlueprintError::NameError {
+                        name: name.to_string(),
+                    })
             }
             AssignTargetP::Index(pair) => {
                 let (target_expr, index_expr) = pair.as_ref();
@@ -599,9 +603,11 @@ impl Evaluator {
             }
             AssignTargetP::Dot(target_expr, attr) => {
                 let target_val = self.eval_expr(target_expr, scope).await?;
-                target_val.get_attr(attr.node.as_str()).ok_or_else(|| BlueprintError::AttributeError {
-                    type_name: target_val.type_name().into(),
-                    attr: attr.node.to_string(),
+                target_val.get_attr(attr.node.as_str()).ok_or_else(|| {
+                    BlueprintError::AttributeError {
+                        type_name: target_val.type_name().into(),
+                        attr: attr.node.to_string(),
+                    }
                 })
             }
             AssignTargetP::Tuple(_) => Err(BlueprintError::Unsupported {
@@ -614,10 +620,16 @@ impl Evaluator {
         match value {
             Value::List(l) => Ok(l.read().await.clone()),
             Value::Tuple(t) => Ok(t.as_ref().clone()),
-            Value::String(s) => Ok(s.chars().map(|c| Value::String(Arc::new(c.to_string()))).collect()),
+            Value::String(s) => Ok(s
+                .chars()
+                .map(|c| Value::String(Arc::new(c.to_string())))
+                .collect()),
             Value::Dict(d) => {
                 let map = d.read().await;
-                Ok(map.keys().map(|k| Value::String(Arc::new(k.clone()))).collect())
+                Ok(map
+                    .keys()
+                    .map(|k| Value::String(Arc::new(k.clone())))
+                    .collect())
             }
             Value::Set(s) => {
                 let set = s.read().await;
@@ -680,8 +692,14 @@ impl Evaluator {
             } else {
                 match &remaining[0] {
                     Clause::For(next_for) => {
-                        self.eval_comprehension_clauses(body, next_for, &remaining[1..], iter_scope, results)
-                            .await?;
+                        self.eval_comprehension_clauses(
+                            body,
+                            next_for,
+                            &remaining[1..],
+                            iter_scope,
+                            results,
+                        )
+                        .await?;
                     }
                     Clause::If(cond) => {
                         let cond_val = self.eval_expr(cond, iter_scope.clone()).await?;
@@ -726,8 +744,15 @@ impl Evaluator {
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let mut results = IndexMap::new();
-        self.eval_dict_comprehension_clauses(key_expr, val_expr, first, clauses, scope, &mut results)
-            .await?;
+        self.eval_dict_comprehension_clauses(
+            key_expr,
+            val_expr,
+            first,
+            clauses,
+            scope,
+            &mut results,
+        )
+        .await?;
         Ok(Value::Dict(Arc::new(tokio::sync::RwLock::new(results))))
     }
 
@@ -795,14 +820,12 @@ impl Evaluator {
         Ok(())
     }
 
-    pub async fn handle_yield(
-        &self,
-        expr: Option<&AstExpr>,
-        scope: Arc<Scope>,
-    ) -> Result<Value> {
-        let yield_tx = scope.get_yield_tx().ok_or_else(|| BlueprintError::ArgumentError {
-            message: "yield used outside of a generator function".into(),
-        })?;
+    pub async fn handle_yield(&self, expr: Option<&AstExpr>, scope: Arc<Scope>) -> Result<Value> {
+        let yield_tx = scope
+            .get_yield_tx()
+            .ok_or_else(|| BlueprintError::ArgumentError {
+                message: "yield used outside of a generator function".into(),
+            })?;
 
         let value = match expr {
             Some(e) => self.eval_expr(e, scope).await?,
@@ -853,21 +876,26 @@ impl Evaluator {
         kwargs: HashMap<String, Value>,
         _parent_scope: Arc<Scope>,
     ) -> Result<Value> {
-        let body = func.body.downcast_ref::<AstStmt>().ok_or_else(|| {
-            BlueprintError::InternalError {
-                message: "Invalid function body".into(),
-            }
-        })?;
+        let body =
+            func.body
+                .downcast_ref::<AstStmt>()
+                .ok_or_else(|| BlueprintError::InternalError {
+                    message: "Invalid function body".into(),
+                })?;
 
         if Self::contains_yield(body) {
             return self.create_generator(func, args, kwargs).await;
         }
 
-        let closure_scope = func.closure.as_ref().and_then(|c| c.downcast_ref::<Arc<Scope>>().cloned());
+        let closure_scope = func
+            .closure
+            .as_ref()
+            .and_then(|c| c.downcast_ref::<Arc<Scope>>().cloned());
         let base_scope = closure_scope.unwrap_or_else(Scope::new_global);
         let call_scope = Scope::new_child(base_scope, ScopeKind::Function);
 
-        self.bind_parameters(&func.params, args, kwargs, &call_scope).await?;
+        self.bind_parameters(&func.params, args, kwargs, &call_scope)
+            .await?;
 
         let func_name = func.name.clone();
         let file = self.current_file.as_ref().map(|p| p.display().to_string());
@@ -893,17 +921,23 @@ impl Evaluator {
     ) -> Result<Value> {
         let (tx, rx) = mpsc::channel::<GeneratorMessage>(1);
 
-        let closure_scope = func.closure.as_ref().and_then(|c| c.downcast_ref::<Arc<Scope>>().cloned());
+        let closure_scope = func
+            .closure
+            .as_ref()
+            .and_then(|c| c.downcast_ref::<Arc<Scope>>().cloned());
         let base_scope = closure_scope.unwrap_or_else(Scope::new_global);
         let gen_scope = Scope::new_generator(base_scope, tx.clone());
 
-        self.bind_parameters(&func.params, args, kwargs, &gen_scope).await?;
+        self.bind_parameters(&func.params, args, kwargs, &gen_scope)
+            .await?;
 
-        let body = func.body.downcast_ref::<AstStmt>().ok_or_else(|| {
-            BlueprintError::InternalError {
+        let body = func
+            .body
+            .downcast_ref::<AstStmt>()
+            .ok_or_else(|| BlueprintError::InternalError {
                 message: "Invalid function body".into(),
-            }
-        })?.clone();
+            })?
+            .clone();
 
         let func_name = func.name.clone();
 
@@ -932,17 +966,22 @@ impl Evaluator {
         kwargs: HashMap<String, Value>,
         _parent_scope: Arc<Scope>,
     ) -> Result<Value> {
-        let closure_scope = func.closure.as_ref().and_then(|c| c.downcast_ref::<Arc<Scope>>().cloned());
+        let closure_scope = func
+            .closure
+            .as_ref()
+            .and_then(|c| c.downcast_ref::<Arc<Scope>>().cloned());
         let base_scope = closure_scope.unwrap_or_else(Scope::new_global);
         let call_scope = Scope::new_child(base_scope, ScopeKind::Function);
 
-        self.bind_parameters(&func.params, args, kwargs, &call_scope).await?;
+        self.bind_parameters(&func.params, args, kwargs, &call_scope)
+            .await?;
 
-        let body = func.body.downcast_ref::<AstExpr>().ok_or_else(|| {
-            BlueprintError::InternalError {
-                message: "Invalid lambda body".into(),
-            }
-        })?;
+        let body =
+            func.body
+                .downcast_ref::<AstExpr>()
+                .ok_or_else(|| BlueprintError::InternalError {
+                    message: "Invalid lambda body".into(),
+                })?;
 
         let file = self.current_file.as_ref().map(|p| p.display().to_string());
         let (line, column) = self.get_span_location(&body.span);
@@ -1007,14 +1046,21 @@ impl Evaluator {
                 blueprint_engine_core::ParameterKind::Args => {
                     let remaining: Vec<Value> = args[arg_idx..].to_vec();
                     scope
-                        .define(&param.name, Value::List(Arc::new(tokio::sync::RwLock::new(remaining))))
+                        .define(
+                            &param.name,
+                            Value::List(Arc::new(tokio::sync::RwLock::new(remaining))),
+                        )
                         .await;
                     arg_idx = args.len();
                 }
                 blueprint_engine_core::ParameterKind::Kwargs => {
-                    let remaining: IndexMap<String, Value> = std::mem::take(&mut kwargs).into_iter().collect();
+                    let remaining: IndexMap<String, Value> =
+                        std::mem::take(&mut kwargs).into_iter().collect();
                     scope
-                        .define(&param.name, Value::Dict(Arc::new(tokio::sync::RwLock::new(remaining))))
+                        .define(
+                            &param.name,
+                            Value::Dict(Arc::new(tokio::sync::RwLock::new(remaining))),
+                        )
                         .await;
                 }
             }

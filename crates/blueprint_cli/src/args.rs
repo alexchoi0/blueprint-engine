@@ -3,7 +3,11 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "blueprint3")]
-#[command(author, version, about = "High-performance Starlark script executor with implicit async I/O")]
+#[command(
+    author,
+    version,
+    about = "High-performance Starlark script executor with implicit async I/O"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -16,10 +20,19 @@ pub enum Commands {
         #[arg(required_unless_present = "exec", num_args = 1..)]
         scripts: Vec<PathBuf>,
 
-        #[arg(short = 'e', long = "exec", help = "Execute inline code instead of files")]
+        #[arg(
+            short = 'e',
+            long = "exec",
+            help = "Execute inline code instead of files"
+        )]
         exec: Option<String>,
 
-        #[arg(short = 'j', long, default_value = "0", help = "Max concurrent scripts (0 = unlimited)")]
+        #[arg(
+            short = 'j',
+            long,
+            default_value = "0",
+            help = "Max concurrent scripts (0 = unlimited)"
+        )]
         jobs: usize,
 
         #[arg(short, long, help = "Verbose output")]
@@ -34,10 +47,18 @@ pub enum Commands {
         #[arg(long, help = "Prompt for all permissions interactively")]
         ask: bool,
 
-        #[arg(long = "allow", value_name = "RULE", help = "Allow permission (e.g., 'fs.read:./data/*', 'process.run:git')")]
+        #[arg(
+            long = "allow",
+            value_name = "RULE",
+            help = "Allow permission (e.g., 'fs.read:./data/*', 'process.run:git')"
+        )]
         allow: Vec<String>,
 
-        #[arg(long = "deny", value_name = "RULE", help = "Deny permission (e.g., 'process.shell', 'fs.delete:*')")]
+        #[arg(
+            long = "deny",
+            value_name = "RULE",
+            help = "Deny permission (e.g., 'process.shell', 'fs.delete:*')"
+        )]
         deny: Vec<String>,
 
         #[arg(last = true, help = "Arguments passed to scripts")]

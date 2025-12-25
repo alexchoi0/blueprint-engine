@@ -229,7 +229,10 @@ mod tests {
     fn test_policy_default_deny() {
         let perms = Permissions::none();
         assert_eq!(perms.check_fs_read("/etc/passwd"), PermissionCheck::Deny);
-        assert_eq!(perms.check_http("https://example.com"), PermissionCheck::Deny);
+        assert_eq!(
+            perms.check_http("https://example.com"),
+            PermissionCheck::Deny
+        );
         assert_eq!(perms.check_process_shell(), PermissionCheck::Deny);
     }
 
@@ -237,7 +240,10 @@ mod tests {
     fn test_policy_allow_all() {
         let perms = Permissions::all();
         assert_eq!(perms.check_fs_read("/etc/passwd"), PermissionCheck::Allow);
-        assert_eq!(perms.check_http("https://example.com"), PermissionCheck::Allow);
+        assert_eq!(
+            perms.check_http("https://example.com"),
+            PermissionCheck::Allow
+        );
         assert_eq!(perms.check_process_shell(), PermissionCheck::Allow);
     }
 
@@ -245,7 +251,10 @@ mod tests {
     fn test_policy_ask_all() {
         let perms = Permissions::ask_all();
         assert_eq!(perms.check_fs_read("/etc/passwd"), PermissionCheck::Ask);
-        assert_eq!(perms.check_http("https://example.com"), PermissionCheck::Ask);
+        assert_eq!(
+            perms.check_http("https://example.com"),
+            PermissionCheck::Ask
+        );
         assert_eq!(perms.check_process_shell(), PermissionCheck::Ask);
     }
 
@@ -266,16 +275,28 @@ mod tests {
             deny: vec![],
         };
 
-        assert_eq!(perms.check_fs_read("./data/file.json"), PermissionCheck::Allow);
+        assert_eq!(
+            perms.check_fs_read("./data/file.json"),
+            PermissionCheck::Allow
+        );
         assert_eq!(perms.check_fs_read("/tmp/test"), PermissionCheck::Allow);
         assert_eq!(perms.check_fs_read("/etc/passwd"), PermissionCheck::Deny);
 
-        assert_eq!(perms.check_http("https://api.github.com/repos"), PermissionCheck::Allow);
-        assert_eq!(perms.check_http("https://foo.internal.corp/api"), PermissionCheck::Allow);
+        assert_eq!(
+            perms.check_http("https://api.github.com/repos"),
+            PermissionCheck::Allow
+        );
+        assert_eq!(
+            perms.check_http("https://foo.internal.corp/api"),
+            PermissionCheck::Allow
+        );
         assert_eq!(perms.check_http("https://evil.com"), PermissionCheck::Deny);
 
         assert_eq!(perms.check_process_run("git"), PermissionCheck::Allow);
-        assert_eq!(perms.check_process_run("/usr/bin/git"), PermissionCheck::Allow);
+        assert_eq!(
+            perms.check_process_run("/usr/bin/git"),
+            PermissionCheck::Allow
+        );
         assert_eq!(perms.check_process_run("rm"), PermissionCheck::Deny);
 
         assert_eq!(perms.check_env_read("HOME"), PermissionCheck::Allow);
@@ -286,21 +307,20 @@ mod tests {
     fn test_ask_patterns() {
         let perms = Permissions {
             policy: Policy::Deny,
-            allow: vec![
-                "fs.read:./config/*".to_string(),
-            ],
-            ask: vec![
-                "fs.read:*".to_string(),
-                "net.http:*".to_string(),
-            ],
-            deny: vec![
-                "process.shell".to_string(),
-            ],
+            allow: vec!["fs.read:./config/*".to_string()],
+            ask: vec!["fs.read:*".to_string(), "net.http:*".to_string()],
+            deny: vec!["process.shell".to_string()],
         };
 
-        assert_eq!(perms.check_fs_read("./config/settings.json"), PermissionCheck::Allow);
+        assert_eq!(
+            perms.check_fs_read("./config/settings.json"),
+            PermissionCheck::Allow
+        );
         assert_eq!(perms.check_fs_read("/etc/passwd"), PermissionCheck::Ask);
-        assert_eq!(perms.check_http("https://example.com"), PermissionCheck::Ask);
+        assert_eq!(
+            perms.check_http("https://example.com"),
+            PermissionCheck::Ask
+        );
         assert_eq!(perms.check_process_shell(), PermissionCheck::Deny);
         assert_eq!(perms.check_process_run("git"), PermissionCheck::Deny);
     }
@@ -333,7 +353,10 @@ mod tests {
         };
 
         assert_eq!(perms.check_http("https://safe.com"), PermissionCheck::Allow);
-        assert_eq!(perms.check_http("https://foo.dangerous.com"), PermissionCheck::Ask);
+        assert_eq!(
+            perms.check_http("https://foo.dangerous.com"),
+            PermissionCheck::Ask
+        );
     }
 
     #[test]
@@ -345,9 +368,18 @@ mod tests {
             deny: vec![],
         };
 
-        assert_eq!(perms.check_fs_read("./workspace/file"), PermissionCheck::Allow);
-        assert_eq!(perms.check_fs_write("./workspace/file"), PermissionCheck::Allow);
-        assert_eq!(perms.check_fs_delete("./workspace/file"), PermissionCheck::Allow);
+        assert_eq!(
+            perms.check_fs_read("./workspace/file"),
+            PermissionCheck::Allow
+        );
+        assert_eq!(
+            perms.check_fs_write("./workspace/file"),
+            PermissionCheck::Allow
+        );
+        assert_eq!(
+            perms.check_fs_delete("./workspace/file"),
+            PermissionCheck::Allow
+        );
         assert_eq!(perms.check_fs_read("/etc/passwd"), PermissionCheck::Deny);
     }
 
@@ -372,15 +404,24 @@ mod tests {
 
         assert_eq!(perms.policy, Policy::Deny);
         assert_eq!(perms.check_fs_read("./data/test"), PermissionCheck::Allow);
-        assert_eq!(perms.check_http("https://api.github.com"), PermissionCheck::Allow);
+        assert_eq!(
+            perms.check_http("https://api.github.com"),
+            PermissionCheck::Allow
+        );
         assert_eq!(perms.check_http("https://other.com"), PermissionCheck::Ask);
         assert_eq!(perms.check_process_shell(), PermissionCheck::Deny);
     }
 
     #[test]
     fn test_extract_host() {
-        assert_eq!(extract_host("https://api.example.com/v1"), "api.example.com");
+        assert_eq!(
+            extract_host("https://api.example.com/v1"),
+            "api.example.com"
+        );
         assert_eq!(extract_host("http://localhost:8080/path"), "localhost");
-        assert_eq!(extract_host("wss://stream.example.com"), "stream.example.com");
+        assert_eq!(
+            extract_host("wss://stream.example.com"),
+            "stream.example.com"
+        );
     }
 }

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use blueprint_engine_core::SourceLocation;
 use blueprint_engine_parser::{
-    AstExpr, AstParameter, AstStmt, AssignTargetP, Clause, ExprP, ForClause, ParameterP, StmtP,
+    AssignTargetP, AstExpr, AstParameter, AstStmt, Clause, ExprP, ForClause, ParameterP, StmtP,
 };
 use blueprint_starlark_syntax::codemap::CodeMap;
 use blueprint_starlark_syntax::syntax::ast::ArgumentP;
@@ -24,13 +24,57 @@ impl Checker {
     pub fn new() -> Self {
         let mut builtins = HashSet::new();
         for name in [
-            "True", "False", "None",
-            "print", "len", "range", "str", "int", "float", "bool", "list", "dict", "tuple", "set",
-            "type", "isinstance", "hasattr", "getattr", "setattr",
-            "min", "max", "sum", "abs", "round", "sorted", "reversed", "enumerate", "zip", "map", "filter",
-            "any", "all", "input", "open", "exit",
-            "http", "json", "time", "crypto", "jwt", "ws", "task", "fs",
-            "parallel", "sleep", "env", "run", "glob", "assert", "redact", "hash",
+            "True",
+            "False",
+            "None",
+            "print",
+            "len",
+            "range",
+            "str",
+            "int",
+            "float",
+            "bool",
+            "list",
+            "dict",
+            "tuple",
+            "set",
+            "type",
+            "isinstance",
+            "hasattr",
+            "getattr",
+            "setattr",
+            "min",
+            "max",
+            "sum",
+            "abs",
+            "round",
+            "sorted",
+            "reversed",
+            "enumerate",
+            "zip",
+            "map",
+            "filter",
+            "any",
+            "all",
+            "input",
+            "open",
+            "exit",
+            "http",
+            "json",
+            "time",
+            "crypto",
+            "jwt",
+            "ws",
+            "task",
+            "fs",
+            "parallel",
+            "sleep",
+            "env",
+            "run",
+            "glob",
+            "assert",
+            "redact",
+            "hash",
         ] {
             builtins.insert(name.to_string());
         }
@@ -249,8 +293,10 @@ impl Checker {
                 self.check_expr(callee, scope);
                 for arg in &args.args {
                     match &arg.node {
-                        ArgumentP::Positional(e) | ArgumentP::Named(_, e) |
-                        ArgumentP::Args(e) | ArgumentP::KwArgs(e) => {
+                        ArgumentP::Positional(e)
+                        | ArgumentP::Named(_, e)
+                        | ArgumentP::Args(e)
+                        | ArgumentP::KwArgs(e) => {
                             self.check_expr(e, scope);
                         }
                     }
@@ -346,7 +392,12 @@ impl Checker {
         }
     }
 
-    fn check_for_clause(&mut self, clause: &ForClause, comp_scope: &mut CheckScope, parent_scope: &CheckScope) {
+    fn check_for_clause(
+        &mut self,
+        clause: &ForClause,
+        comp_scope: &mut CheckScope,
+        parent_scope: &CheckScope,
+    ) {
         self.check_expr(&clause.over, parent_scope);
         self.define_target(&clause.var, comp_scope);
     }
@@ -363,7 +414,11 @@ impl Checker {
         }
     }
 
-    fn define_target(&mut self, target: &blueprint_starlark_syntax::syntax::ast::AstAssignTarget, scope: &mut CheckScope) {
+    fn define_target(
+        &mut self,
+        target: &blueprint_starlark_syntax::syntax::ast::AstAssignTarget,
+        scope: &mut CheckScope,
+    ) {
         match &target.node {
             AssignTargetP::Identifier(ident) => {
                 let name = &ident.node.ident;
@@ -388,14 +443,21 @@ impl Checker {
             AssignTargetP::Dot(target_expr, attr) => {
                 self.check_expr(target_expr, scope);
                 self.errors.push(CheckerError {
-                    message: format!("cannot assign to field '.{}': structs are immutable", attr.node),
+                    message: format!(
+                        "cannot assign to field '.{}': structs are immutable",
+                        attr.node
+                    ),
                     location: self.get_location(&target.span),
                 });
             }
         }
     }
 
-    fn check_assign_target(&mut self, target: &blueprint_starlark_syntax::syntax::ast::AstAssignTarget, scope: &CheckScope) {
+    fn check_assign_target(
+        &mut self,
+        target: &blueprint_starlark_syntax::syntax::ast::AstAssignTarget,
+        scope: &CheckScope,
+    ) {
         match &target.node {
             AssignTargetP::Identifier(ident) => {
                 let name = ident.node.ident.as_str();
@@ -419,7 +481,10 @@ impl Checker {
             AssignTargetP::Dot(target_expr, attr) => {
                 self.check_expr(target_expr, scope);
                 self.errors.push(CheckerError {
-                    message: format!("cannot assign to field '.{}': structs are immutable", attr.node),
+                    message: format!(
+                        "cannot assign to field '.{}': structs are immutable",
+                        attr.node
+                    ),
                     location: self.get_location(&target.span),
                 });
             }
@@ -562,7 +627,8 @@ impl Checker {
         }
 
         if module_path.starts_with("./") || module_path.starts_with("../") {
-            let current_dir = self.current_file
+            let current_dir = self
+                .current_file
                 .as_ref()
                 .and_then(|f| f.parent().map(|p| p.to_path_buf()))
                 .unwrap_or_else(|| PathBuf::from("."));
@@ -591,7 +657,10 @@ impl Checker {
             blueprint_engine_parser::get_location(codemap, *span)
         } else {
             SourceLocation {
-                file: self.current_file.as_ref().map(|p| p.to_string_lossy().to_string()),
+                file: self
+                    .current_file
+                    .as_ref()
+                    .map(|p| p.to_string_lossy().to_string()),
                 line: 0,
                 column: 0,
                 span: None,

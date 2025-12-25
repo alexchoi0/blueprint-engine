@@ -38,9 +38,7 @@ where
     F: FnOnce() -> R,
 {
     let prompt_state = Arc::new(PromptState::default());
-    PERMISSIONS.sync_scope(permissions, || {
-        PROMPT_STATE.sync_scope(prompt_state, f)
-    })
+    PERMISSIONS.sync_scope(permissions, || PROMPT_STATE.sync_scope(prompt_state, f))
 }
 
 pub async fn with_permissions_async<F, Fut, R>(permissions: Arc<Permissions>, f: F) -> R
@@ -95,7 +93,11 @@ async fn handle_permission_check(
                 hint: format!(
                     "Add '{}:{}' to permissions.allow in BP.toml",
                     operation,
-                    if resource_str.is_empty() { "*" } else { resource_str }
+                    if resource_str.is_empty() {
+                        "*"
+                    } else {
+                        resource_str
+                    }
                 ),
             })
         }
@@ -156,7 +158,7 @@ async fn prompt_user(operation: &str, resource: Option<&str>) -> Result<bool> {
     eprintln!("│ Operation: {:<52} │", operation);
     if !resource_display.is_empty() {
         let truncated = if resource_display.len() > 52 {
-            format!("...{}", &resource_display[resource_display.len()-49..])
+            format!("...{}", &resource_display[resource_display.len() - 49..])
         } else {
             resource_display.to_string()
         };
@@ -175,9 +177,7 @@ async fn prompt_user(operation: &str, resource: Option<&str>) -> Result<bool> {
         input.trim().to_lowercase()
     })
     .await
-    .map(|response| {
-        matches!(response.as_str(), "y" | "yes" | "")
-    })
+    .map(|response| matches!(response.as_str(), "y" | "yes" | ""))
     .map_err(|e| BlueprintError::IoError {
         path: "stdin".into(),
         message: e.to_string(),

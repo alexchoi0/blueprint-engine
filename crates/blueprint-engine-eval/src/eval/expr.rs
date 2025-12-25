@@ -3,15 +3,13 @@ use std::sync::Arc;
 
 use indexmap::{IndexMap, IndexSet};
 
-use blueprint_engine_core::{
-    BlueprintError, Result, SourceLocation, Value,
-};
+use blueprint_engine_core::{BlueprintError, Result, SourceLocation, Value};
 use blueprint_engine_parser::AstExpr;
 use blueprint_starlark_syntax::syntax::ast::{AstLiteral, BinOp, ExprP};
 
-use crate::scope::Scope;
-use super::Evaluator;
 use super::ops;
+use super::Evaluator;
+use crate::scope::Scope;
 
 impl Evaluator {
     #[async_recursion::async_recursion]
@@ -33,11 +31,11 @@ impl Evaluator {
                     return Ok(value);
                 }
 
-                if let Some(native) = self.natives.get(name) {
+                if let Some(native) = self.builtins.get(name) {
                     return Ok(Value::NativeFunction(native.clone()));
                 }
 
-                if let Some(module_funcs) = self.modules.get(name) {
+                if let Some(module_funcs) = self.custom_modules.get(name) {
                     let mut dict = IndexMap::new();
                     for (func_name, func) in module_funcs {
                         dict.insert(func_name.clone(), Value::NativeFunction(func.clone()));
@@ -98,7 +96,10 @@ impl Evaluator {
                 let index_val = self.eval_expr(index, scope).await?;
                 self.eval_index(target_val, index_val).await.map_err(|e| {
                     let (line, column) = self.get_span_location(&expr.span);
-                    let file = self.current_file.as_ref().map(|p| p.to_string_lossy().to_string());
+                    let file = self
+                        .current_file
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string());
                     e.with_location(SourceLocation {
                         file,
                         line,
@@ -113,7 +114,8 @@ impl Evaluator {
                 let target_val = self.eval_expr(target, scope.clone()).await?;
                 let start_val = self.eval_expr(start, scope.clone()).await?;
                 let end_val = self.eval_expr(end, scope).await?;
-                self.eval_slice(target_val, Some(start_val), Some(end_val)).await
+                self.eval_slice(target_val, Some(start_val), Some(end_val))
+                    .await
             }
 
             ExprP::Dot(target, attr) => {
@@ -191,7 +193,10 @@ impl Evaluator {
                 let right = self.eval_expr(rhs, scope).await?;
                 ops::eval_binary_op(left, *op, right).await.map_err(|e| {
                     let (line, column) = self.get_span_location(&expr.span);
-                    let file = self.current_file.as_ref().map(|p| p.to_string_lossy().to_string());
+                    let file = self
+                        .current_file
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string());
                     e.with_location(SourceLocation {
                         file,
                         line,
@@ -246,7 +251,8 @@ impl Evaluator {
                     Some(s) => Some(self.eval_expr(s, scope).await?),
                     None => None,
                 };
-                self.eval_slice_with_step(arr_val, start_val, stop_val, step_val).await
+                self.eval_slice_with_step(arr_val, start_val, stop_val, step_val)
+                    .await
             }
 
             ExprP::FString(fstring) => {
@@ -266,7 +272,10 @@ impl Evaluator {
             }
 
             _ => Err(BlueprintError::InternalError {
-                message: format!("Unhandled expression type: {:?}", std::mem::discriminant(&expr.node)),
+                message: format!(
+                    "Unhandled expression type: {:?}",
+                    std::mem::discriminant(&expr.node)
+                ),
             }),
         }
     }
@@ -275,14 +284,15 @@ impl Evaluator {
         use blueprint_starlark_syntax::lexer::TokenInt;
         match lit {
             AstLiteral::Int(i) => {
-                let val = match &i.node {
-                    TokenInt::I32(n) => *n as i64,
-                    TokenInt::BigInt(n) => n.to_string().parse::<i64>().map_err(|_| {
-                        BlueprintError::ValueError {
-                            message: "Integer overflow".into(),
-                        }
-                    })?,
-                };
+                let val =
+                    match &i.node {
+                        TokenInt::I32(n) => *n as i64,
+                        TokenInt::BigInt(n) => n.to_string().parse::<i64>().map_err(|_| {
+                            BlueprintError::ValueError {
+                                message: "Integer overflow".into(),
+                            }
+                        })?,
+                    };
                 Ok(Value::Int(val))
             }
             AstLiteral::Float(f) => Ok(Value::Float(f.node)),
@@ -332,7 +342,9 @@ impl Evaluator {
                         message: format!("string index {} out of range (len={})", idx, len),
                     })
                 } else {
-                    Ok(Value::String(Arc::new(chars[actual_idx as usize].to_string())))
+                    Ok(Value::String(Arc::new(
+                        chars[actual_idx as usize].to_string(),
+                    )))
                 }
             }
             Value::Dict(d) => {
@@ -354,7 +366,12 @@ impl Evaluator {
         }
     }
 
-    pub async fn eval_slice(&self, target: Value, start: Option<Value>, end: Option<Value>) -> Result<Value> {
+    pub async fn eval_slice(
+        &self,
+        target: Value,
+        start: Option<Value>,
+        end: Option<Value>,
+    ) -> Result<Value> {
         match &target {
             Value::List(l) => {
                 let items = l.read().await;
@@ -465,11 +482,21 @@ impl Evaluator {
                 let chars: Vec<char> = s.chars().collect();
                 let len = chars.len() as i64;
                 let (start_idx, end_idx) = self.get_step_indices(start, end, step_val, len)?;
-                let char_values: Vec<Value> = chars.iter().map(|c| Value::String(Arc::new(c.to_string()))).collect();
+                let char_values: Vec<Value> = chars
+                    .iter()
+                    .map(|c| Value::String(Arc::new(c.to_string())))
+                    .collect();
                 let slice = self.collect_with_step(&char_values, start_idx, end_idx, step_val);
-                let result: String = slice.into_iter().filter_map(|v| {
-                    if let Value::String(s) = v { Some(s.as_ref().clone()) } else { None }
-                }).collect();
+                let result: String = slice
+                    .into_iter()
+                    .filter_map(|v| {
+                        if let Value::String(s) = v {
+                            Some(s.as_ref().clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
                 Ok(Value::String(Arc::new(result)))
             }
             Value::Tuple(t) => {
@@ -492,11 +519,19 @@ impl Evaluator {
         step: i64,
         len: i64,
     ) -> Result<(i64, i64)> {
-        let (default_start, default_end) = if step > 0 { (0, len) } else { (len - 1, -len - 1) };
+        let (default_start, default_end) = if step > 0 {
+            (0, len)
+        } else {
+            (len - 1, -len - 1)
+        };
 
         let start_idx = match start {
             Some(Value::Int(i)) => {
-                if i < 0 { (len + i).max(if step > 0 { 0 } else { -1 }) } else { i.min(len) }
+                if i < 0 {
+                    (len + i).max(if step > 0 { 0 } else { -1 })
+                } else {
+                    i.min(len)
+                }
             }
             Some(Value::None) | None => default_start,
             Some(v) => {
@@ -509,7 +544,11 @@ impl Evaluator {
 
         let end_idx = match end {
             Some(Value::Int(i)) => {
-                if i < 0 { len + i } else { i.min(len) }
+                if i < 0 {
+                    len + i
+                } else {
+                    i.min(len)
+                }
             }
             Some(Value::None) | None => default_end,
             Some(v) => {
@@ -523,7 +562,13 @@ impl Evaluator {
         Ok((start_idx, end_idx))
     }
 
-    pub fn collect_with_step<T: Clone>(&self, items: &[T], start: i64, end: i64, step: i64) -> Vec<T> {
+    pub fn collect_with_step<T: Clone>(
+        &self,
+        items: &[T],
+        start: i64,
+        end: i64,
+        step: i64,
+    ) -> Vec<T> {
         let mut result = Vec::new();
         let mut i = start;
         if step > 0 {

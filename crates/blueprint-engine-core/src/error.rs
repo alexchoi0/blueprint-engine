@@ -186,7 +186,10 @@ impl BlueprintError {
     pub fn is_control_flow(&self) -> bool {
         matches!(
             self,
-            BlueprintError::Break | BlueprintError::Continue | BlueprintError::Return { .. } | BlueprintError::Exit { .. }
+            BlueprintError::Break
+                | BlueprintError::Continue
+                | BlueprintError::Return { .. }
+                | BlueprintError::Exit { .. }
         )
     }
 
@@ -196,9 +199,17 @@ impl BlueprintError {
         }
 
         match self {
-            BlueprintError::WithStack { error, mut stack, location } => {
+            BlueprintError::WithStack {
+                error,
+                mut stack,
+                location,
+            } => {
                 stack.push(frame);
-                BlueprintError::WithStack { error, stack, location }
+                BlueprintError::WithStack {
+                    error,
+                    stack,
+                    location,
+                }
             }
             other => {
                 let mut stack = StackTrace::new();
@@ -218,16 +229,20 @@ impl BlueprintError {
         }
 
         match self {
-            BlueprintError::WithStack { error, stack, location: _ } => {
-                BlueprintError::WithStack { error, stack, location: Some(loc) }
-            }
-            other => {
-                BlueprintError::WithStack {
-                    error: Box::new(other),
-                    stack: StackTrace::new(),
-                    location: Some(loc),
-                }
-            }
+            BlueprintError::WithStack {
+                error,
+                stack,
+                location: _,
+            } => BlueprintError::WithStack {
+                error,
+                stack,
+                location: Some(loc),
+            },
+            other => BlueprintError::WithStack {
+                error: Box::new(other),
+                stack: StackTrace::new(),
+                location: Some(loc),
+            },
         }
     }
 

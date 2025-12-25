@@ -26,7 +26,7 @@ fn random_id() -> String {
     let bytes: [u8; 4] = rand::thread_rng().gen();
     hex::encode(bytes)
 }
-use crate::natives::triggers::{TriggerHandle, TriggerType, TRIGGER_REGISTRY};
+use crate::modules::triggers::{TriggerHandle, TriggerType, TRIGGER_REGISTRY};
 
 pub fn get_functions() -> Vec<NativeFunction> {
     vec![

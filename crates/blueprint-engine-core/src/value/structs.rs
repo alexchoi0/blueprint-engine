@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use crate::error::{BlueprintError, Result};
 use super::Value;
+use crate::error::{BlueprintError, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
@@ -35,16 +35,12 @@ impl TypeAnnotation {
                     }
                 }
             },
-            TypeAnnotation::Parameterized(name, _params) => {
-                match name.as_str() {
-                    "list" => matches!(value, Value::List(_)),
-                    "dict" => matches!(value, Value::Dict(_)),
-                    _ => false,
-                }
-            }
-            TypeAnnotation::Optional(inner) => {
-                matches!(value, Value::None) || inner.matches(value)
-            }
+            TypeAnnotation::Parameterized(name, _params) => match name.as_str() {
+                "list" => matches!(value, Value::List(_)),
+                "dict" => matches!(value, Value::Dict(_)),
+                _ => false,
+            },
+            TypeAnnotation::Optional(inner) => matches!(value, Value::None) || inner.matches(value),
         }
     }
 
@@ -75,7 +71,11 @@ pub struct StructType {
 }
 
 impl StructType {
-    pub fn instantiate(&self, args: Vec<Value>, kwargs: HashMap<String, Value>) -> Result<StructInstance> {
+    pub fn instantiate(
+        &self,
+        args: Vec<Value>,
+        kwargs: HashMap<String, Value>,
+    ) -> Result<StructInstance> {
         let mut field_values: IndexMap<String, Value> = IndexMap::new();
 
         let mut positional_idx = 0;
@@ -155,7 +155,11 @@ impl StructInstance {
             .fields
             .iter()
             .map(|f| {
-                let val = self.fields.get(&f.name).map(|v| v.repr()).unwrap_or_default();
+                let val = self
+                    .fields
+                    .get(&f.name)
+                    .map(|v| v.repr())
+                    .unwrap_or_default();
                 format!("{}={}", f.name, val)
             })
             .collect();

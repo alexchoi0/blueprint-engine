@@ -1,16 +1,18 @@
 mod package;
 mod repl;
 
-pub use package::{init_workspace, install_package, list_packages, sync_workspace, uninstall_package};
+pub use package::{
+    init_workspace, install_package, list_packages, sync_workspace, uninstall_package,
+};
 pub use repl::{eval_expression, repl};
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use blueprint_engine_core::{
-    BlueprintError, Permissions, Policy, Result, Value, with_permissions_async,
+    with_permissions_async, BlueprintError, Permissions, Policy, Result, Value,
 };
-use blueprint_engine_eval::{Checker, Evaluator, Scope, triggers};
+use blueprint_engine_eval::{triggers, Checker, Evaluator, Scope};
 use blueprint_engine_parser::parse;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -91,8 +93,9 @@ pub async fn run_scripts(
 
     let script_args = Arc::new(script_args);
     let perm_flags = Arc::new(perm_flags);
-    let mut join_set: JoinSet<std::result::Result<(PathBuf, Option<BlueprintError>), (PathBuf, BlueprintError)>> =
-        JoinSet::new();
+    let mut join_set: JoinSet<
+        std::result::Result<(PathBuf, Option<BlueprintError>), (PathBuf, BlueprintError)>,
+    > = JoinSet::new();
 
     for script_path in scripts {
         let semaphore = semaphore.clone();
@@ -106,7 +109,9 @@ pub async fn run_scripts(
                 None
             };
 
-            match run_single_script(&script_path, (*script_args).clone(), verbose, &perm_flags).await {
+            match run_single_script(&script_path, (*script_args).clone(), verbose, &perm_flags)
+                .await
+            {
                 Ok(()) => Ok((script_path, None)),
                 Err(e) => {
                     if matches!(e.inner_error(), BlueprintError::Exit { .. }) {
@@ -150,7 +155,11 @@ pub async fn run_scripts(
     }
 
     if verbose {
-        eprintln!("\nResults: {} succeeded, {} failed", success_count, errors.len());
+        eprintln!(
+            "\nResults: {} succeeded, {} failed",
+            success_count,
+            errors.len()
+        );
     }
 
     if !errors.is_empty() {
@@ -206,7 +215,10 @@ async fn run_single_script(
             .collect();
 
         scope
-            .define("argv", Value::List(Arc::new(tokio::sync::RwLock::new(argv))))
+            .define(
+                "argv",
+                Value::List(Arc::new(tokio::sync::RwLock::new(argv))),
+            )
             .await;
 
         let abs_path = std::fs::canonicalize(path)
@@ -308,7 +320,10 @@ pub async fn run_inline(
             .collect();
 
         scope
-            .define("argv", Value::List(Arc::new(tokio::sync::RwLock::new(argv))))
+            .define(
+                "argv",
+                Value::List(Arc::new(tokio::sync::RwLock::new(argv))),
+            )
             .await;
 
         scope

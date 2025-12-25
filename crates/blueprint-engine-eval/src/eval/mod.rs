@@ -17,7 +17,7 @@ use blueprint_starlark_syntax::codemap::CodeMap;
 use blueprint_starlark_syntax::syntax::ast::{ArgumentP, ExprP};
 use tokio::sync::RwLock;
 
-use crate::natives::NativeModuleRegistry;
+use crate::modules::ModuleRegistry;
 use crate::scope::Scope;
 
 pub struct FrozenModule {
@@ -25,22 +25,22 @@ pub struct FrozenModule {
 }
 
 static MODULE_CACHE: OnceLock<RwLock<HashMap<String, Arc<FrozenModule>>>> = OnceLock::new();
-static NATIVE_REGISTRY: OnceLock<Arc<NativeModuleRegistry>> = OnceLock::new();
+static STDLIB_REGISTRY: OnceLock<Arc<ModuleRegistry>> = OnceLock::new();
 
 fn get_module_cache() -> &'static RwLock<HashMap<String, Arc<FrozenModule>>> {
     MODULE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn get_native_registry() -> Arc<NativeModuleRegistry> {
-    NATIVE_REGISTRY
-        .get_or_init(|| Arc::new(crate::natives::build_registry()))
+fn get_stdlib_registry() -> Arc<ModuleRegistry> {
+    STDLIB_REGISTRY
+        .get_or_init(|| Arc::new(crate::modules::build_registry()))
         .clone()
 }
 
 pub struct Evaluator {
-    pub(crate) natives: HashMap<String, Arc<NativeFunction>>,
-    pub(crate) modules: HashMap<String, HashMap<String, Arc<NativeFunction>>>,
-    pub(crate) native_registry: Arc<NativeModuleRegistry>,
+    pub(crate) builtins: HashMap<String, Arc<NativeFunction>>,
+    pub(crate) custom_modules: HashMap<String, HashMap<String, Arc<NativeFunction>>>,
+    pub(crate) stdlib: Arc<ModuleRegistry>,
     pub(crate) codemap: Option<CodeMap>,
     pub(crate) current_file: Option<PathBuf>,
 }
@@ -48,9 +48,9 @@ pub struct Evaluator {
 impl Evaluator {
     pub fn new() -> Self {
         let mut evaluator = Self {
-            natives: HashMap::new(),
-            modules: HashMap::new(),
-            native_registry: get_native_registry(),
+            builtins: HashMap::new(),
+            custom_modules: HashMap::new(),
+            stdlib: get_stdlib_registry(),
             codemap: None,
             current_file: None,
         };
@@ -68,25 +68,25 @@ impl Evaluator {
     }
 
     pub fn register_native(&mut self, func: NativeFunction) {
-        self.natives.insert(func.name.clone(), Arc::new(func));
+        self.builtins.insert(func.name.clone(), Arc::new(func));
     }
 
     pub fn register_module_native(&mut self, module: &str, func: NativeFunction) {
-        self.modules
+        self.custom_modules
             .entry(module.to_string())
             .or_default()
             .insert(func.name.clone(), Arc::new(func));
     }
 
     pub fn register_native_module(&mut self, module_path: &str, functions: Vec<NativeFunction>) {
-        let module_funcs = self.modules.entry(module_path.to_string()).or_default();
+        let module_funcs = self.custom_modules.entry(module_path.to_string()).or_default();
         for func in functions {
             module_funcs.insert(func.name.clone(), Arc::new(func));
         }
     }
 
     fn register_builtins(&mut self) {
-        crate::natives::register_builtins(self);
+        crate::modules::register_builtins(self);
     }
 
     pub fn value_to_dict_key(&self, value: &Value) -> Result<String> {
@@ -238,14 +238,14 @@ impl Evaluator {
         let module_path = &load.module.node;
 
         if let Some(module_name) = module_path.strip_prefix('@') {
-            if let Some(module_funcs) = self.modules.get(module_name) {
+            if let Some(module_funcs) = self.custom_modules.get(module_name) {
                 return self
                     .bind_evaluator_module(load, module_name, module_funcs, scope)
                     .await;
             }
 
             if let Some(native_module) = module_name.strip_prefix("bp/") {
-                if self.native_registry.has_module(native_module) {
+                if self.stdlib.has_module(native_module) {
                     return self.bind_native_module(load, native_module, scope).await;
                 }
             }
@@ -321,10 +321,10 @@ impl Evaluator {
         scope: Arc<Scope>,
     ) -> Result<Value> {
         let module_funcs = self
-            .native_registry
+            .stdlib
             .get_module(module_name)
             .ok_or_else(|| BlueprintError::ImportError {
-                message: format!("Native module '@bp/{}' not found", module_name),
+                message: format!("Module '@bp/{}' not found", module_name),
             })?;
 
         self.bind_native_functions(load, &module_funcs, scope, module_name, &format!("@bp/{}", module_name))

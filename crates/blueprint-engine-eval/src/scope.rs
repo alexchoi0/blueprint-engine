@@ -47,7 +47,10 @@ impl Scope {
         })
     }
 
-    pub fn new_generator(parent: Arc<Scope>, yield_tx: mpsc::Sender<GeneratorMessage>) -> Arc<Self> {
+    pub fn new_generator(
+        parent: Arc<Scope>,
+        yield_tx: mpsc::Sender<GeneratorMessage>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             variables: RwLock::new(HashMap::new()),
             parent: Some(parent),
