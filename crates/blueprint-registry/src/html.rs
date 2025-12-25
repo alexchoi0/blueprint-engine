@@ -131,13 +131,13 @@ pub fn home(user: Option<&SessionUser>) -> Markup {
                 div class="rounded-lg border border-border bg-card p-6" {
                     h3 class="font-semibold mb-2" { "Install a package" }
                     pre class="rounded-md bg-secondary p-4 font-mono text-sm overflow-x-auto" {
-                        code { "blueprint add @username/package-name" }
+                        code { "bp install @username/package-name" }
                     }
                 }
                 div class="rounded-lg border border-border bg-card p-6" {
                     h3 class="font-semibold mb-2" { "Publish your own" }
                     pre class="rounded-md bg-secondary p-4 font-mono text-sm overflow-x-auto" {
-                        code { "blueprint publish" }
+                        code { "bp publish" }
                     }
                 }
             }
@@ -214,7 +214,7 @@ pub fn package_detail(user: Option<&SessionUser>, pkg: &Package, versions: &[Ver
                 div class="rounded-lg border border-border bg-card p-6" {
                     h2 class="text-lg font-semibold mb-3" { "Install" }
                     pre class="rounded-md bg-secondary p-4 font-mono text-sm overflow-x-auto" {
-                        code { (format!("blueprint add {}@{}", full_name, v.version)) }
+                        code { (format!("bp install @{}@{}", full_name, v.version)) }
                     }
                 }
             }

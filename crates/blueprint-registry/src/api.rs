@@ -290,12 +290,20 @@ async fn download_package(
         .map_err(|e| ApiError::Internal(e.to_string()))
 }
 
+const RESERVED_NAMESPACES: &[&str] = &["bp", "blueprint", "stdlib", "core", "std"];
+
 async fn publish_package(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
     Path((namespace, name)): Path<(String, String)>,
     mut multipart: Multipart,
 ) -> ApiResult<Json<VersionInfo>> {
+    if RESERVED_NAMESPACES.contains(&namespace.to_lowercase().as_str()) {
+        return Err(ApiError::Forbidden(
+            format!("The namespace '{}' is reserved", namespace),
+        ));
+    }
+
     let user_namespace = user.email.split('@').next().unwrap_or(&user.email);
     if namespace != user_namespace {
         return Err(ApiError::Forbidden(
