@@ -221,12 +221,14 @@ impl Evaluator {
     ) -> Result<Value> {
         let module_path = &load.module.node;
 
-        if let Some(module_name) = module_path.strip_prefix('@') {
-            if let Some(stdlib_module) = module_name.strip_prefix("bp/") {
-                if self.stdlib.has_module(stdlib_module) {
-                    return self.bind_stdlib_module(load, stdlib_module, scope).await;
-                }
+        // @bp/ prefix is reserved for Rust stdlib only
+        if let Some(stdlib_module) = module_path.strip_prefix("@bp/") {
+            if self.stdlib.has_module(stdlib_module) {
+                return self.bind_stdlib_module(load, stdlib_module, scope).await;
             }
+            return Err(BlueprintError::ImportError {
+                message: format!("Module '@bp/{}' not found in stdlib", stdlib_module),
+            });
         }
 
         let resolved_path = self.resolve_module_path(module_path)?;
@@ -395,11 +397,8 @@ impl Evaluator {
     }
 
     fn resolve_module_path(&self, module_path: &str) -> Result<PathBuf> {
-        if let Some(stdlib_path) = module_path.strip_prefix("@bp/") {
-            return self.resolve_stdlib_path(stdlib_path);
-        }
-
-        if module_path.starts_with('@') && !module_path.starts_with("@bp/") {
+        // @bp/ is handled in eval_load, so any @ prefix here is a package
+        if module_path.starts_with('@') {
             return self.resolve_package_path(module_path);
         }
 
@@ -470,46 +469,6 @@ impl Evaluator {
             .and_then(|f| f.parent().map(|p| p.to_path_buf()))
             .or_else(|| std::env::current_dir().ok())?;
         find_workspace_root_from(start_dir)
-    }
-
-    fn resolve_stdlib_path(&self, module_name: &str) -> Result<PathBuf> {
-        let filename = format!("{}.bp", module_name);
-
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let stdlib_path = exe_dir.join("stdlib").join(&filename);
-                if stdlib_path.exists() {
-                    return Ok(stdlib_path);
-                }
-
-                let stdlib_path = exe_dir.join("../stdlib").join(&filename);
-                if stdlib_path.exists() {
-                    return Ok(stdlib_path);
-                }
-            }
-        }
-
-        if let Ok(cwd) = std::env::current_dir() {
-            let stdlib_path = cwd.join("stdlib").join(&filename);
-            if stdlib_path.exists() {
-                return Ok(stdlib_path);
-            }
-        }
-
-        if let Ok(home) = std::env::var("HOME") {
-            let stdlib_path = PathBuf::from(home)
-                .join(".blueprint")
-                .join("stdlib")
-                .join(&filename);
-            if stdlib_path.exists() {
-                return Ok(stdlib_path);
-            }
-        }
-
-        Err(BlueprintError::IoError {
-            path: format!("@bp/{}", module_name),
-            message: format!("stdlib module '{}' not found", module_name),
-        })
     }
 
     pub fn contains_yield(stmt: &AstStmt) -> bool {
