@@ -78,35 +78,71 @@ pub fn get_packages_dir_from(start: Option<PathBuf>) -> PathBuf {
     }
 }
 
-pub fn fetch_package(spec: &PackageSpec, dest: &PathBuf) -> Result<()> {
-    let repo_url = format!("https://github.com/{}/{}.git", spec.user, spec.repo);
+const DEFAULT_REGISTRY: &str = "https://blueprint.fleetnet.engineering";
 
-    let output = std::process::Command::new("git")
-        .args([
-            "clone",
-            "--depth",
-            "1",
-            "--branch",
-            &spec.version,
-            &repo_url,
-        ])
-        .arg(dest)
+pub fn get_registry_url() -> String {
+    std::env::var("BP_REGISTRY").unwrap_or_else(|_| DEFAULT_REGISTRY.to_string())
+}
+
+pub fn fetch_package(spec: &PackageSpec, dest: &PathBuf) -> Result<()> {
+    let registry = get_registry_url();
+    let download_url = format!(
+        "{}/api/v1/packages/{}/{}/{}/download",
+        registry, spec.user, spec.repo, spec.version
+    );
+
+    let output = std::process::Command::new("curl")
+        .args(["-fsSL", "-o", "-", &download_url])
         .output()
         .map_err(|e| BlueprintError::IoError {
-            path: repo_url.clone(),
+            path: download_url.clone(),
             message: e.to_string(),
         })?;
 
     if !output.status.success() {
-        std::fs::remove_dir_all(dest).ok();
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(BlueprintError::IoError {
-            path: repo_url,
-            message: format!("Failed to clone: {}", stderr.trim()),
+            path: download_url,
+            message: format!("Failed to download package: {}", stderr.trim()),
         });
     }
 
-    std::fs::remove_dir_all(dest.join(".git")).ok();
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| BlueprintError::IoError {
+            path: parent.to_string_lossy().to_string(),
+            message: e.to_string(),
+        })?;
+    }
+
+    std::fs::create_dir_all(dest).map_err(|e| BlueprintError::IoError {
+        path: dest.to_string_lossy().to_string(),
+        message: e.to_string(),
+    })?;
+
+    let tar_output = std::process::Command::new("tar")
+        .args(["-xzf", "-", "-C"])
+        .arg(dest)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            if let Some(stdin) = child.stdin.as_mut() {
+                stdin.write_all(&output.stdout)?;
+            }
+            child.wait()
+        })
+        .map_err(|e| BlueprintError::IoError {
+            path: dest.to_string_lossy().to_string(),
+            message: format!("Failed to extract package: {}", e),
+        })?;
+
+    if !tar_output.success() {
+        std::fs::remove_dir_all(dest).ok();
+        return Err(BlueprintError::IoError {
+            path: dest.to_string_lossy().to_string(),
+            message: "Failed to extract package tarball".into(),
+        });
+    }
 
     Ok(())
 }

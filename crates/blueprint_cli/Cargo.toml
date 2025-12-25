@@ -21,5 +21,10 @@ axum.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 toml.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["multipart"] }
 rustyline = "15"
+flate2 = "1"
+tar = "0.4"
+walkdir = "2"
+dirs = "5"
+libc = "0.2"

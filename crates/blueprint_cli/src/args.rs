@@ -109,4 +109,31 @@ pub enum Commands {
 
     #[command(about = "Install dependencies from BP.toml")]
     Sync,
+
+    #[command(about = "Login to the package registry")]
+    Login {
+        #[arg(long, help = "Registry URL (default: https://registry.blueprint.dev)")]
+        registry: Option<String>,
+    },
+
+    #[command(about = "Logout from the package registry")]
+    Logout,
+
+    #[command(about = "Publish package to the registry")]
+    Publish {
+        #[arg(help = "Path to package directory (default: current directory)")]
+        path: Option<PathBuf>,
+
+        #[arg(long, help = "Registry URL (default: https://registry.blueprint.dev)")]
+        registry: Option<String>,
+
+        #[arg(long, help = "API token (or use BP_TOKEN env var)")]
+        token: Option<String>,
+
+        #[arg(long, help = "Skip confirmation prompt")]
+        yes: bool,
+    },
+
+    #[command(about = "Show current user info")]
+    Whoami,
 }

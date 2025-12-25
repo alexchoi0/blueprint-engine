@@ -52,6 +52,15 @@ fn main() {
             Commands::List => runner::list_packages().await,
             Commands::Init => runner::init_workspace().await,
             Commands::Sync => runner::sync_workspace().await,
+            Commands::Login { registry } => runner::login(registry.as_deref()).await,
+            Commands::Logout => runner::logout().await,
+            Commands::Publish {
+                path,
+                registry,
+                token,
+                yes,
+            } => runner::publish(path, registry.as_deref(), token.as_deref(), yes).await,
+            Commands::Whoami => runner::whoami().await,
         }
     });
 

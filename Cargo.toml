@@ -4,6 +4,7 @@ members = [
     "crates/blueprint-engine-parser",
     "crates/blueprint-engine-eval",
     "crates/blueprint_cli",
+    "crates/blueprint-registry",
 ]
 resolver = "2"
 

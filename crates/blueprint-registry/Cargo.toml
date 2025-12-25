@@ -1,0 +1,46 @@
+[package]
+name = "blueprint-registry"
+version = "0.1.0"
+edition = "2021"
+description = "Package registry server for Blueprint packages"
+
+[[bin]]
+name = "bp-server"
+path = "src/main.rs"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["multipart"] }
+axum-extra = { version = "0.9", features = ["cookie"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Auth
+tsa-auth = { version = "0.1.2", path = "../../../tsa-auth/crates/tsa-auth", default-features = false }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# HTML templating
+maud = "0.26"
+
+# Utilities
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+semver = { version = "1", features = ["serde"] }
+sha2 = "0.10"
+hex = "0.4"
+uuid = { version = "1", features = ["v4", "serde"] }
+urlencoding = "2"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }

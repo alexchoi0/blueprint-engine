@@ -51,18 +51,15 @@ impl Dependency {
         }
     }
 
-    pub fn git_url(&self, name: &str) -> Option<String> {
-        match self {
-            Dependency::Simple(_) => {
-                let parts: Vec<&str> = name.splitn(2, '/').collect();
-                if parts.len() == 2 {
-                    Some(format!("https://github.com/{}/{}.git", parts[0], parts[1]))
-                } else {
-                    None
-                }
-            }
-            Dependency::Detailed(d) => d.git.clone(),
+    pub fn registry_spec(&self, name: &str) -> Option<(String, String, String)> {
+        let parts: Vec<&str> = name.splitn(2, '/').collect();
+        if parts.len() != 2 {
+            return None;
         }
+        let namespace = parts[0].to_string();
+        let pkg_name = parts[1].to_string();
+        let version = self.version().to_string();
+        Some((namespace, pkg_name, version))
     }
 
     pub fn local_path(&self) -> Option<&str> {
@@ -163,37 +160,18 @@ impl Workspace {
             return Ok(());
         }
 
-        if let Some(git_url) = dep.git_url(name) {
+        if let Some((namespace, pkg_name, version)) = dep.registry_spec(name) {
             self.ensure_packages_dir()?;
-
-            if let Some(parent) = pkg_path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| BlueprintError::IoError {
-                    path: parent.to_string_lossy().to_string(),
-                    message: e.to_string(),
-                })?;
-            }
 
             println!("Installing {}#{}...", name, version);
 
-            let output = std::process::Command::new("git")
-                .args(["clone", "--depth", "1", "--branch", version, &git_url])
-                .arg(&pkg_path)
-                .output()
-                .map_err(|e| BlueprintError::IoError {
-                    path: git_url.clone(),
-                    message: e.to_string(),
-                })?;
+            let spec = blueprint_engine_core::PackageSpec {
+                user: namespace,
+                repo: pkg_name,
+                version: version.clone(),
+            };
 
-            if !output.status.success() {
-                std::fs::remove_dir_all(&pkg_path).ok();
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(BlueprintError::IoError {
-                    path: git_url,
-                    message: format!("Failed to clone: {}", stderr.trim()),
-                });
-            }
-
-            std::fs::remove_dir_all(pkg_path.join(".git")).ok();
+            blueprint_engine_core::fetch_package(&spec, &pkg_path)?;
             println!("Installed {}#{}", name, version);
         }
 

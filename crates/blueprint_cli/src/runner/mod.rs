@@ -1,9 +1,11 @@
 mod package;
+mod publish;
 mod repl;
 
 pub use package::{
     init_workspace, install_package, list_packages, sync_workspace, uninstall_package,
 };
+pub use publish::{login, logout, publish, whoami};
 pub use repl::{eval_expression, repl};
 
 use std::path::{Path, PathBuf};
