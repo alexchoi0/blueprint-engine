@@ -42,6 +42,7 @@ pub struct Evaluator {
     pub(crate) stdlib: Arc<ModuleRegistry>,
     pub(crate) codemap: Option<CodeMap>,
     pub(crate) current_file: Option<PathBuf>,
+    pub(crate) local_cache: Option<Arc<RwLock<HashMap<String, Arc<FrozenModule>>>>>,
 }
 
 impl Evaluator {
@@ -51,6 +52,19 @@ impl Evaluator {
             stdlib: get_stdlib_registry(),
             codemap: None,
             current_file: None,
+            local_cache: None,
+        };
+        evaluator.register_builtins();
+        evaluator
+    }
+
+    pub fn new_isolated() -> Self {
+        let mut evaluator = Self {
+            builtins: HashMap::new(),
+            stdlib: get_stdlib_registry(),
+            codemap: None,
+            current_file: None,
+            local_cache: Some(Arc::new(RwLock::new(HashMap::new()))),
         };
         evaluator.register_builtins();
         evaluator
@@ -63,6 +77,13 @@ impl Evaluator {
 
     pub fn set_file(&mut self, path: impl AsRef<Path>) {
         self.current_file = Some(path.as_ref().to_path_buf());
+    }
+
+    fn get_cache(&self) -> &RwLock<HashMap<String, Arc<FrozenModule>>> {
+        match &self.local_cache {
+            Some(cache) => cache.as_ref(),
+            None => get_module_cache(),
+        }
     }
 
     pub fn register_native(&mut self, func: NativeFunction) {
@@ -237,7 +258,7 @@ impl Evaluator {
             .to_string_lossy()
             .to_string();
 
-        let cache = get_module_cache();
+        let cache = self.get_cache();
 
         {
             let cache_read = cache.read().await;
@@ -263,8 +284,13 @@ impl Evaluator {
             .define("__file__", Value::String(Arc::new(canonical_path.clone())))
             .await;
 
-        let mut module_evaluator = Evaluator::new();
-        module_evaluator.set_file(&resolved_path);
+        let mut module_evaluator = Evaluator {
+            builtins: self.builtins.clone(),
+            stdlib: self.stdlib.clone(),
+            codemap: None,
+            current_file: Some(resolved_path.clone()),
+            local_cache: self.local_cache.clone(),
+        };
         module_evaluator.eval(&module, module_scope.clone()).await?;
 
         let exports = module_scope.exports().await;

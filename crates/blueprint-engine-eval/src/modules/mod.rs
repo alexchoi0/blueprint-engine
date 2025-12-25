@@ -12,6 +12,7 @@ mod random;
 mod redact;
 mod regex;
 pub mod registry;
+mod runtime;
 mod socket;
 mod task;
 mod time;
@@ -40,6 +41,7 @@ pub fn build_registry() -> ModuleRegistry {
     registry.register_module("random", random::get_functions());
     registry.register_module("redact", redact::get_functions());
     registry.register_module("regex", regex::get_functions());
+    registry.register_module("runtime", runtime::get_functions());
     registry.register_module("socket", socket::get_functions());
     registry.register_module("task", task::get_functions());
     registry.register_module("time", time::get_functions());
