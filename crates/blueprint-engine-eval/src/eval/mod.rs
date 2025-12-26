@@ -1,6 +1,11 @@
+mod assignment;
+mod comprehension;
 mod expr;
+mod functions;
 mod ops;
+mod pattern;
 mod stmt;
+mod types;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
