@@ -14,6 +14,18 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+pub enum GenerateCommands {
+    #[command(about = "Generate a DOT graph of the call graph")]
+    Dot {
+        #[arg(required = true, help = "Glob pattern for .bp files (e.g., \"**/*.bp\")")]
+        pattern: String,
+
+        #[arg(short, long, help = "Output file (default: stdout)")]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum Commands {
     #[command(about = "Run one or more Starlark scripts")]
     Run {
@@ -136,4 +148,10 @@ pub enum Commands {
 
     #[command(about = "Show current user info")]
     Whoami,
+
+    #[command(about = "Generate various outputs from Blueprint files")]
+    Generate {
+        #[command(subcommand)]
+        command: GenerateCommands,
+    },
 }

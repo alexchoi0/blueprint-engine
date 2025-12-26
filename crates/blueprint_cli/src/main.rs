@@ -1,4 +1,5 @@
 mod args;
+mod callgraph;
 mod runner;
 mod workspace;
 
@@ -6,7 +7,7 @@ use blueprint_engine_core::BlueprintError;
 use clap::Parser;
 use tokio::runtime::Builder;
 
-use args::{Cli, Commands};
+use args::{Cli, Commands, GenerateCommands};
 use runner::PermissionFlags;
 
 fn main() {
@@ -61,6 +62,11 @@ fn main() {
                 yes,
             } => runner::publish(path, registry.as_deref(), token.as_deref(), yes).await,
             Commands::Whoami => runner::whoami().await,
+            Commands::Generate { command } => match command {
+                GenerateCommands::Dot { pattern, output } => {
+                    runner::generate_dot(&pattern, output.as_deref()).await
+                }
+            },
         }
     });
 

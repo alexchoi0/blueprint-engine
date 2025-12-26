@@ -14,6 +14,7 @@ path = "src/main.rs"
 blueprint-engine-core.workspace = true
 blueprint-engine-parser.workspace = true
 blueprint-engine-eval.workspace = true
+blueprint-starlark-syntax.workspace = true
 tokio.workspace = true
 clap.workspace = true
 glob.workspace = true

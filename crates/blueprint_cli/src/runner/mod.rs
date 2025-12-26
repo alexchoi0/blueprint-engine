@@ -386,3 +386,31 @@ fn report_error(path: &Path, error: &BlueprintError) {
     eprintln!("\n--- {} ---", path.display());
     eprintln!("{}", error.format_with_stack());
 }
+
+pub async fn generate_dot(pattern: &str, output: Option<&Path>) -> Result<()> {
+    let files = expand_globs(vec![PathBuf::from(pattern)])?;
+
+    if files.is_empty() {
+        eprintln!("No files found matching pattern: {}", pattern);
+        return Ok(());
+    }
+
+    eprintln!("Analyzing {} file(s)...", files.len());
+
+    let graph = crate::callgraph::analyze_files(&files);
+    let dot = graph.to_dot();
+
+    if let Some(output_path) = output {
+        tokio::fs::write(output_path, &dot)
+            .await
+            .map_err(|e| BlueprintError::IoError {
+                path: output_path.to_string_lossy().to_string(),
+                message: e.to_string(),
+            })?;
+        eprintln!("Written to {}", output_path.display());
+    } else {
+        println!("{}", dot);
+    }
+
+    Ok(())
+}
