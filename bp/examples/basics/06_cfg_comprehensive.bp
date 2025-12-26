@@ -1,0 +1,141 @@
+load("./06_cfg_lib.bp", "GREETING", "VERSION", "lib_helper", "lib_process")
+
+print("=== CFG Comprehensive Test ===")
+
+PUBLIC_CONST = 100
+_private_const = "hidden"
+
+def simple_func():
+    return 42
+
+def func_with_params(a, b, c=10):
+    result = a + b + c
+    return result
+
+def func_with_varargs(name, *args, **kwargs):
+    print("Name:", name)
+    print("Args:", args)
+    print("Kwargs:", kwargs)
+
+def factorial(n):
+    if n <= 1:
+        return 1
+    return n * factorial(n - 1)
+
+def fibonacci(n):
+    if n <= 0:
+        return 0
+    elif n == 1:
+        return 1
+    else:
+        return fibonacci(n - 1) + fibonacci(n - 2)
+
+def nested_conditionals(x, y):
+    if x > 0:
+        if y > 0:
+            return "both positive"
+        else:
+            return "x positive, y not"
+    else:
+        if y > 0:
+            return "y positive, x not"
+        else:
+            return "both not positive"
+
+def loop_with_break(items):
+    result = None
+    for item in items:
+        if item == "target":
+            result = item
+            break
+        print("Checking:", item)
+    return result
+
+def loop_with_continue(numbers):
+    total = 0
+    for n in numbers:
+        if n < 0:
+            continue
+        total = total + n
+    return total
+
+def nested_loops_with_control(matrix):
+    found = False
+    for row in matrix:
+        for cell in row:
+            if cell == 0:
+                found = True
+                break
+        if found:
+            break
+    return found
+
+def count_up(limit):
+    for i in range(limit):
+        yield i
+
+def fibonacci_gen(n):
+    a, b = 0, 1
+    for _ in range(n):
+        yield a
+        a, b = b, a + b
+
+def filtered_gen(items, predicate):
+    for item in items:
+        if predicate(item):
+            yield item
+
+def process_data(data):
+    if data == None:
+        return "no data"
+
+    if len(data) == 0:
+        return "empty"
+
+    result = []
+    for item in data:
+        if item < 0:
+            continue
+        if item > 100:
+            break
+        result.append(item * 2)
+
+    return result
+
+def complex_flow(mode, value):
+    if mode == "add":
+        if value > 0:
+            return value + 10
+        elif value < 0:
+            return value - 10
+        else:
+            return 0
+    elif mode == "multiply":
+        for i in range(3):
+            value = value * 2
+            if value > 1000:
+                break
+        return value
+    else:
+        return None
+
+print("Testing functions...")
+print("simple_func():", simple_func())
+print("func_with_params(1, 2, 3):", func_with_params(1, 2, 3))
+print("factorial(5):", factorial(5))
+print("fibonacci(10):", fibonacci(10))
+print("nested_conditionals(1, -1):", nested_conditionals(1, -1))
+print("loop_with_break(['a', 'target', 'b']):", loop_with_break(["a", "target", "b"]))
+print("loop_with_continue([1, -2, 3, -4, 5]):", loop_with_continue([1, -2, 3, -4, 5]))
+print("process_data([10, -5, 50, 200, 30]):", process_data([10, -5, 50, 200, 30]))
+print("complex_flow('add', 5):", complex_flow("add", 5))
+print("complex_flow('multiply', 10):", complex_flow("multiply", 10))
+
+print()
+print("Testing generators...")
+print("count_up(5):", list(count_up(5)))
+print("fibonacci_gen(8):", list(fibonacci_gen(8)))
+print("filtered_gen([1,2,3,4,5], lambda x: x % 2 == 0):", list(filtered_gen([1,2,3,4,5], lambda x: x % 2 == 0)))
+
+print()
+print("All CFG tests complete!")
